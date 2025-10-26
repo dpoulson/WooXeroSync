@@ -7,6 +7,7 @@ use Livewire\Attributes\On;
 use App\Services\WoocommerceService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Log;
 
 class WoocommerceConnectionStatus extends Component
 {
@@ -91,6 +92,7 @@ class WoocommerceConnectionStatus extends Component
         } catch (\Exception $e) {
             // Handle encryption or database save error gracefully
             $this->dispatch('banner-message', style: 'danger', message: 'Error saving credentials: ' . $e->getMessage());
+            Log::error('WooCommerce Save Error: ' . $e->getMessage() . ' - Trace: ' . $e->getTraceAsString());
             return;
         }
 
