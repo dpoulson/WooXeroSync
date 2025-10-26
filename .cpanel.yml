@@ -1,0 +1,31 @@
+---
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/a60chequ/xero.we-make-things.co.uk
+    # Replace 'username' with your actual cPanel username and 'public_html/'
+    # with your target directory (e.g., 'yourdomain.com/' or 'app/').
+
+    # 1. Deployment: Git Pull (Automatic)
+    # The cPanel Git feature handles the initial 'git clone' and subsequent 'git pull'.
+
+    # 2. Change Directory: Move into the application root
+    - /bin/echo "Changing directory to application root."
+    - /bin/cd $DEPLOYPATH
+
+    # 3. Install Composer Dependencies
+    # --no-dev: Skips development packages
+    # --prefer-dist: Downloads gzipped package archives instead of cloning repos
+    # --optimize-autoloader: Speeds up class loading for production
+    - /bin/echo "Running composer install..."
+    - ~/bin/composer install --no-dev --prefer-dist --optimize-autoloader
+
+    # 4. Run Database Migrations
+    # --force: Necessary to run migrations in a production environment
+    - /bin/echo "Running database migrations..."
+    - /usr/local/bin/php artisan migrate --force
+
+    # 5. Clear Caches (Optional but recommended)
+    - /bin/echo "Clearing caches..."
+    - /usr/local/bin/php artisan cache:clear
+    - /usr/local/bin/php artisan config:cache
+    - /usr/local/bin/php artisan view:cache
