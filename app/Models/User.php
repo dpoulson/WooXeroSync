@@ -36,6 +36,9 @@ class User extends Authenticatable
         'email',
         'password',
         'wc_payment_account_map',
+        'woocommerce_url',
+        'woocommerce_consumer_key',
+        'woocommerce_consumer_secret'
     ];
 
     /**
