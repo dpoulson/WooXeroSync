@@ -251,7 +251,7 @@ class XeroTokenService
 
             $data = $response->json();
 
-            self::saveConnectionData($user, $data, $user->xero_tenant_id, $user->xero_tenant_name);
+            self::saveConnectionData($user, $data, Crypt::decryptString($user->xero_tenant_id), $user->xero_tenant_name);
 
             Log::info("Xero token for user {$user->id} successfully refreshed.");
 

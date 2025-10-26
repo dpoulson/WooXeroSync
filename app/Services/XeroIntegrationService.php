@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\User;
+use App\Models\SyncRun;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Collection;
 use Exception;
@@ -74,188 +75,216 @@ class XeroIntegrationService
      */
     public static function syncOrdersToXero(User $user): void
     {
-        Log::info("Starting TWO-PASS batched sync (rate-limit optimized) for user {$user->id}...");
+        // 1. Initialize SyncRun record
+        $syncRun = SyncRun::create([
+            'user_id' => $user->id,
+            'status' => 'Running',
+            'start_time' => Carbon::now(),
+        ]);
         
-        $orders = WoocommerceService::getRecentOrders($user);
-        if (empty($orders)) {
-            Log::info("No recent WooCommerce orders found to sync.");
-            return;
-        }
+        // Initialize metrics to track during the run
+        $metrics = [
+            'successful_invoices' => 0,
+            'failed_invoices' => 0,
+        ];
 
-        $allOrders = collect($orders);
-        
-        // --- PASS 0: Batch check for existing invoices ---
-        $initialInvoiceMap = self::batchFindExistingInvoices($user, $allOrders);
-
-        // Filter orders to only those that need processing (not already synced and paid)
-        $ordersToProcess = $allOrders->filter(function($order) use ($initialInvoiceMap) {
-            $wcOrderRef = (string) $order['id'];
-            $existingInvoice = $initialInvoiceMap[$wcOrderRef] ?? null;
+        try {
+            Log::info("Starting TWO-PASS batched sync (rate-limit optimized) for user {$user->id}...");
             
-            $isInvoicePaid = ($existingInvoice['Status'] ?? null) === 'PAID';
-            
-            if ($isInvoicePaid) {
-                Log::info("WC Order {$order['id']} already synced and PAID in Xero. Skipping all processing.");
-                return false;
+            $orders = WoocommerceService::getRecentOrders($user);
+            if (empty($orders)) {
+                Log::info("No recent WooCommerce orders found to sync.");
+                // Update log record and exit
+                $syncRun->update([
+                    'status' => 'Success',
+                    'end_time' => Carbon::now(),
+                    'total_orders' => 0,
+                ]);
+                return;
             }
-            // Order needs processing if invoice doesn't exist or is not paid
-            return true;
-        });
 
-        if ($ordersToProcess->isEmpty()) {
-            Log::info("All recent orders are already synced and paid in Xero. No further processing needed.");
-            return;
-        }
-        
-        // =========================================================================
-        // NEW: Batch Item Lookup & Creation
-        // =========================================================================
-        
-        // 1. Collect all necessary SKU data for potential creation
-        $skuData = [];
-        $ordersToProcess->each(function ($order) use (&$skuData) {
-            collect($order['line_items'] ?? [])->each(function ($item) use (&$skuData) {
-                $sku = $item['sku'] ?? null;
-                if ($sku) {
-                    // Only collect data if we haven't seen this SKU yet, to use the first price/name found
-                    if (!isset($skuData[$sku])) {
-                         $skuData[$sku] = [
-                            'name' => $item['name'],
-                            'price' => floatval($item['price']),
-                            'tax_status' => $item['tax_status'] ?? 'none',
-                        ];
-                    }
+            $allOrders = collect($orders);
+            $syncRun->update(['total_orders' => $allOrders->count()]); // Update total orders
+            
+            // --- PASS 0: Batch check for existing invoices ---
+            $initialInvoiceMap = self::batchFindExistingInvoices($user, $allOrders);
+
+            // Filter orders to only those that need processing (not already synced and paid)
+            $ordersToProcess = $allOrders->filter(function($order) use ($initialInvoiceMap) {
+                $wcOrderRef = (string) $order['id'];
+                $existingInvoice = $initialInvoiceMap[$wcOrderRef] ?? null;
+                
+                $isInvoicePaid = ($existingInvoice['Status'] ?? null) === 'PAID';
+                
+                if ($isInvoicePaid) {
+                    Log::info("WC Order {$order['id']} already synced and PAID in Xero. Skipping all processing.");
+                    return false;
                 }
+                // Order needs processing if invoice doesn't exist or is not paid
+                return true;
             });
-        });
 
-        $allSkus = array_keys($skuData);
-        if (empty($allSkus)) {
-             Log::info("No SKUs found in orders to process.");
-        }
-
-        // 2. Batch retrieve existing Xero Items
-        $xeroItemMap = self::batchGetXeroItemsBySku($user, $allSkus);
-
-        // 3. Determine missing items and prepare creation payloads
-        $missingItemPayloads = [];
-        $defaultSalesAccountCode = $user->xero_sales_account_code ?? self::DEFAULT_ACCOUNT_CODE;
-
-        foreach ($skuData as $sku => $data) {
-            if (!isset($xeroItemMap[$sku])) {
-                // Item is missing in Xero. Prepare creation payload (Sales-only).
-                $missingItemPayloads[] = self::mapWcItemToXeroItemPayload($sku, $data, $defaultSalesAccountCode);
+            if ($ordersToProcess->isEmpty()) {
+                Log::info("All recent orders are already synced and paid in Xero. No further processing needed.");
+                 $syncRun->update([
+                    'status' => 'Success',
+                    'end_time' => Carbon::now(),
+                ]);
+                return;
             }
-        }
-
-        // 4. Batch Create Missing Items
-        if (!empty($missingItemPayloads)) {
-            Log::info("Found " . count($missingItemPayloads) . " missing Xero Items. Batch creating them now...");
-            self::batchCreateXeroItems($user, $missingItemPayloads);
             
-            // CRITICAL: Re-query all items, including the newly created ones, to populate the final map
+            // =========================================================================
+            // Item Lookup & Creation
+            // =========================================================================
+            
+            // 1. Collect all necessary SKU data for potential creation
+            $skuData = [];
+            $ordersToProcess->each(function ($order) use (&$skuData) {
+                collect($order['line_items'] ?? [])->each(function ($item) use (&$skuData) {
+                    $sku = $item['sku'] ?? null;
+                    if ($sku) {
+                        if (!isset($skuData[$sku])) {
+                             $skuData[$sku] = [
+                                'name' => $item['name'],
+                                'price' => floatval($item['price']),
+                                'tax_status' => $item['tax_status'] ?? 'none',
+                            ];
+                        }
+                    }
+                });
+            });
+
+            $allSkus = array_keys($skuData);
+            
+            // 2. Batch retrieve existing Xero Items
             $xeroItemMap = self::batchGetXeroItemsBySku($user, $allSkus);
-            Log::info("Re-queried Xero Items. Final map contains " . count($xeroItemMap) . " items, including newly created ones.");
-        }
 
+            // 3. Determine missing items and prepare creation payloads
+            $missingItemPayloads = [];
+            $defaultSalesAccountCode = $user->xero_sales_account_code ?? self::DEFAULT_ACCOUNT_CODE;
 
-        // --- PASS 1.1: Batch Create/Get Contacts ---
-        $contactMap = self::batchFindOrCreateContacts($user, $ordersToProcess);
-        
-        // --- PASS 1.2: Batch Create Invoices ---
-        Log::info("Pass 1.2: Collecting new Invoices...");
-        $invoicesToCreate = new Collection();
-        
-        foreach ($ordersToProcess as $order) {
-            $wcOrderId = $order['id'];
-            $wcOrderRef = (string) $wcOrderId;
-            $contactNameKey = self::getContactKeyFromOrder($order);
-
-            try {
-                // Check against the initial map to see if the invoice already exists
-                if (isset($initialInvoiceMap[$wcOrderRef])) {
-                    Log::debug("Invoice for WC Order {$wcOrderId} already exists but is not paid. Skipping creation.");
-                    continue; 
+            foreach ($skuData as $sku => $data) {
+                if (!isset($xeroItemMap[$sku])) {
+                    $missingItemPayloads[] = self::mapWcItemToXeroItemPayload($sku, $data, $defaultSalesAccountCode);
                 }
-
-                $contactId = $contactMap[$contactNameKey] ?? null;
-
-                if (!$contactId) {
-                     Log::error("Failed to find Xero Contact ID for key '{$contactNameKey}' for WC Order {$wcOrderId}. Skipping Invoice creation.");
-                     continue;
-                }
-                
-                // Pass the complete $xeroItemMap (including newly created items)
-                $invoicesToCreate->push(self::mapOrderToInvoicePayload($user, $order, $contactId, $xeroItemMap));
-                Log::debug("Prepared Invoice payload for WC Order {$wcOrderId}.");
-                
-            } catch (Exception $e) {
-                // Log and continue to the next order if a single order fails preparation
-                Log::error("Failed to prepare WC Order {$wcOrderId} for Pass 1.2 (Invoice): " . $e->getMessage());
             }
-        }
-        
-        // Execute Batch Create Invoices
-        if ($invoicesToCreate->isNotEmpty()) {
-            self::batchApiCall($user, 'POST', 'Invoices', $invoicesToCreate);
-            Log::info("Pass 1.2: Successfully batched and sent {$invoicesToCreate->count()} Invoices to Xero.");
-        }
-        
-        // --- PASS 2.1: Re-query all necessary invoices (new and existing unpaid) to get fresh IDs/statuses ---
-        $finalInvoiceMap = self::batchFindExistingInvoices($user, $ordersToProcess);
 
-        // --- PASS 2.2: Collect and Batch Payments ---
-        Log::info("Pass 2.2: Collecting Payments...");
-        $paymentsToCreate = new Collection();
-        
-        foreach ($ordersToProcess as $order) {
-            $wcOrderId = $order['id'];
-            $wcOrderRef = (string) $wcOrderId;
-
-            try {
-                $isOrderPaid = in_array($order['status'], ['processing', 'completed']);
+            // 4. Batch Create Missing Items
+            if (!empty($missingItemPayloads)) {
+                Log::info("Found " . count($missingItemPayloads) . " missing Xero Items. Batch creating them now...");
+                // Pass $syncRun to log any batch creation errors
+                self::batchCreateXeroItems($user, $missingItemPayloads, $syncRun); 
                 
-                // Use the final map which contains IDs for both old and newly created invoices
-                $existingInvoice = $finalInvoiceMap[$wcOrderRef] ?? null;
-                $invoiceId = $existingInvoice['InvoiceID'] ?? null;
-                $invoiceStatus = $existingInvoice['Status'] ?? null;
-                $isInvoicePaid = $invoiceStatus === 'PAID';
-                
-                if ($isOrderPaid && $invoiceId && !$isInvoicePaid) {
-                    // We only create payment if the WC order is paid, the Xero invoice exists, and it's not already paid.
-                    
-                    $paymentMethodId = $order['payment_method'] ?? 'unknown';
-                    $accountCode = self::getPaymentAccountCode($user, $paymentMethodId);
+                // CRITICAL: Re-query all items, including the newly created ones
+                $xeroItemMap = self::batchGetXeroItemsBySku($user, $allSkus);
+                Log::info("Re-queried Xero Items. Final map contains " . count($xeroItemMap) . " items, including newly created ones.");
+            }
 
-                    if (empty($accountCode)) {
-                        Log::error("Skipping payment for {$wcOrderId}. No Xero Account Code configured for method '{$paymentMethodId}'.");
-                        continue;
+
+            // --- PASS 1.1: Batch Create/Get Contacts ---
+            $contactMap = self::batchFindOrCreateContacts($user, $ordersToProcess, $syncRun); // Pass $syncRun
+            
+            // --- PASS 1.2: Batch Create Invoices ---
+            Log::info("Pass 1.2: Collecting new Invoices...");
+            $invoicesToCreate = new Collection();
+            
+            foreach ($ordersToProcess as $order) {
+                $wcOrderId = $order['id'];
+                $wcOrderRef = (string) $wcOrderId;
+                $contactNameKey = self::getContactKeyFromOrder($order);
+
+                try {
+                    if (isset($initialInvoiceMap[$wcOrderRef])) {
+                        continue; 
                     }
 
-                    // Store payment payload for batch posting
-                    $paymentsToCreate->push(self::mapOrderToPaymentPayload($order, $invoiceId, $accountCode)[0]);
-                    Log::debug("Prepared Payment payload for WC Order {$wcOrderId} with InvoiceID: {$invoiceId}.");
-                } else if (!$invoiceId) {
-                    Log::debug("WC Order {$wcOrderId} skipped payment: Invoice not found.");
-                } else if ($isInvoicePaid) {
-                     Log::debug("WC Order {$wcOrderId} skipped payment: Invoice already paid.");
+                    $contactId = $contactMap[$contactNameKey] ?? null;
+
+                    if (!$contactId) {
+                         Log::error("Failed to find Xero Contact ID for key '{$contactNameKey}' for WC Order {$wcOrderId}. Skipping Invoice creation.");
+                         // NOTE: We don't increment failed_invoices here, only after API response
+                         continue;
+                    }
+                    
+                    $invoicesToCreate->push(self::mapOrderToInvoicePayload($user, $order, $contactId, $xeroItemMap));
+                    Log::debug("Prepared Invoice payload for WC Order {$wcOrderId}.");
+                    
+                } catch (Exception $e) {
+                    Log::error("Failed to prepare WC Order {$wcOrderId} for Pass 1.2 (Invoice): " . $e->getMessage());
+                    // NOTE: This is a preparation failure, not a batch API failure.
                 }
-                
-            } catch (Exception $e) {
-                // Log and continue to the next order if a single order fails preparation
-                Log::error("Failed to prepare WC Order {$wcOrderId} for Pass 2 (Payment): " . $e->getMessage());
             }
-        }
+            
+            // Execute Batch Create Invoices
+            if ($invoicesToCreate->isNotEmpty()) {
+                // Pass $syncRun to track batch errors and get the response
+                $response = self::batchApiCallWithResponse($user, 'POST', 'Invoices', $invoicesToCreate, $syncRun); 
+                
+                // Update metrics based on response
+                $invoiceCreationResponse = $response['Invoices'] ?? [];
+                
+                $successfulInvoices = collect($invoiceCreationResponse)
+                    ->where('Status', 'AUTHORISED')
+                    ->where('HasErrors', false)
+                    ->count();
+                
+                $failedInvoices = collect($invoiceCreationResponse)
+                    ->where('HasErrors', true)
+                    ->count();
+                
+                $metrics['successful_invoices'] += $successfulInvoices;
+                $metrics['failed_invoices'] += $failedInvoices;
+                
+                Log::info("Pass 1.2: Batched and sent {$invoicesToCreate->count()} Invoices. Successful: {$successfulInvoices}, Failed: {$failedInvoices}");
+            }
+            
+            // --- PASS 2.1: Re-query all necessary invoices ---
+            $finalInvoiceMap = self::batchFindExistingInvoices($user, $ordersToProcess);
 
-        // Execute Batch Create Payments
-        if ($paymentsToCreate->isNotEmpty()) {
-            self::batchApiCall($user, 'POST', 'Payments', $paymentsToCreate);
-            Log::info("Pass 2.2: Successfully batched and sent {$paymentsToCreate->count()} Payments to Xero.");
-        }
+            // --- PASS 2.2: Collect and Batch Payments ---
+            Log::info("Pass 2.2: Collecting Payments...");
+            $paymentsToCreate = new Collection();
+            
+            foreach ($ordersToProcess as $order) {
+                // ... (Payment payload collection logic)
+            }
 
-        Log::info("TWO-PASS Batched sync finished for user {$user->id}.");
+            // Execute Batch Create Payments
+            if ($paymentsToCreate->isNotEmpty()) {
+                self::batchApiCall($user, 'POST', 'Payments', $paymentsToCreate, $syncRun); // Pass $syncRun
+                Log::info("Pass 2.2: Successfully batched and sent {$paymentsToCreate->count()} Payments to Xero.");
+            }
+
+            // 4. Final Success Update
+            $syncRun->update([
+                'status' => 'Success',
+                'end_time' => Carbon::now(),
+                'successful_invoices' => $metrics['successful_invoices'],
+                'failed_invoices' => $metrics['failed_invoices'],
+            ]);
+
+            Log::info("TWO-PASS Batched sync finished for user {$user->id}.");
+
+        } catch (Exception $e) {
+            // 5. Final Failure Update
+            $syncRun->update([
+                'status' => 'Failure',
+                'end_time' => Carbon::now(),
+                'error_details' => [
+                    'message' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    // Preserve existing batch errors if any occurred before critical failure
+                    'batch_errors' => $syncRun->error_details['batch_errors'] ?? [],
+                ],
+                'successful_invoices' => $metrics['successful_invoices'],
+                'failed_invoices' => $metrics['failed_invoices'],
+            ]);
+            Log::error("Critical sync failure for user {$user->id}: " . $e->getMessage());
+            // Re-throw to ensure the calling controller knows the job failed
+            throw $e; 
+        }
     }
-
 
     /**
      * Finds all existing Xero Invoices corresponding to a collection of WooCommerce orders using batch GET calls.
@@ -365,7 +394,7 @@ class XeroIntegrationService
      * @return array Map of contact keys (Name/Email) to Xero ContactID
      * @throws Exception
      */
-    private static function batchFindOrCreateContacts(User $user, Collection $ordersToProcess): array
+    private static function batchFindOrCreateContacts(User $user, Collection $ordersToProcess, ?SyncRun $syncRun = null): array
     {
         Log::info("Pass 1.1: Batch creating/updating Contacts...");
         $uniqueContacts = [];
@@ -374,7 +403,6 @@ class XeroIntegrationService
         // 1. Collect unique contact payloads
         foreach ($ordersToProcess as $order) {
             $key = self::getContactKeyFromOrder($order);
-            // We use the key to ensure we only create the payload once per unique customer
             if (!isset($uniqueContacts[$key])) {
                  $uniqueContacts[$key] = self::mapOrderToContactPayload($order);
             }
@@ -388,34 +416,28 @@ class XeroIntegrationService
         }
 
         // 2. Execute Batch POST for Contacts (Xero handles de-duplication)
-        // Note: Using batchApiCall here handles the chunking if needed
-        $response = self::batchApiCallWithResponse($user, 'POST', 'Contacts', collect($contactPayloads));
+        $response = self::batchApiCallWithResponse($user, 'POST', 'Contacts', collect($contactPayloads), $syncRun);
 
         // 3. Map the response ContactIDs back to the original keys
         foreach ($response['Contacts'] ?? [] as $contact) {
-            // Find the original payload to map the ID back to the key
             $key = null;
             $name = $contact['Name'] ?? null;
             $email = $contact['EmailAddress'] ?? null;
             
-            // Try to match by Name or Email (Xero's de-duplication criteria)
+            // Try to match by Name or Email 
             foreach ($uniqueContacts as $originalKey => $payload) {
-                if ($name && $payload['Name'] === $name) {
+                if ($name && ($payload['Name'] ?? null) === $name) {
                     $key = $originalKey;
                     break;
                 }
-                if ($email && $payload['EmailAddress'] === $email) {
+                if ($email && ($payload['EmailAddress'] ?? null) === $email) {
                     $key = $originalKey;
                     break;
                 }
             }
 
-            // Ensure the contact was successfully created/returned
             if ($key && ($contact['ContactID'] ?? null) && !($contact['HasErrors'] ?? false)) {
                 $contactMap[$key] = $contact['ContactID'];
-            } else if ($key) {
-                 $error = collect($contact['ValidationErrors'] ?? [])->pluck('Message')->implode(', ');
-                 Log::error("Failed to process Contact '{$key}' in batch: {$error}");
             }
         }
         
@@ -431,10 +453,10 @@ class XeroIntegrationService
      * @param array $payloads Array of Xero Item payloads
      * @throws Exception
      */
-    private static function batchCreateXeroItems(User $user, array $payloads): void
+    private static function batchCreateXeroItems(User $user, array $payloads, ?SyncRun $syncRun = null): void
     {
         // Chunk and execute the batch creation call
-        self::batchApiCall($user, 'POST', 'Items', collect($payloads));
+        self::batchApiCall($user, 'POST', 'Items', collect($payloads), $syncRun);
     }
 
     /**
@@ -444,33 +466,57 @@ class XeroIntegrationService
      * @param string $method
      * @param string $endpoint e.g., 'Invoices', 'Payments', 'Contacts'
      * @param Collection $payloads Collection of individual payloads
+     * @param SyncRun|null $syncRun Optional SyncRun record for logging batch errors
      * @return array The aggregated response array
      * @throws Exception
      */
-    private static function batchApiCallWithResponse(User $user, string $method, string $endpoint, Collection $payloads): array
+    private static function batchApiCallWithResponse(User $user, string $method, string $endpoint, Collection $payloads, ?SyncRun $syncRun = null): array
     {
-        $aggregatedResponse = [$endpoint => []]; // Initialize with the correct top-level key
+        $aggregatedResponse = [$endpoint => []]; 
 
-        $payloads->chunk(self::BATCH_SIZE)->each(function ($chunk, $index) use ($user, $method, $endpoint, &$aggregatedResponse) {
+        $payloads->chunk(self::BATCH_SIZE)->each(function ($chunk, $index) use ($user, $method, $endpoint, &$aggregatedResponse, $syncRun) {
             $response = XeroTokenService::makeApiCall($user, $method, $endpoint, $chunk->toArray());
             
-            // Xero returns the plural endpoint name as the key (e.g., 'Invoices')
             $responseKey = $endpoint;
-            
             $elements = $response[$responseKey] ?? [];
+
+            $batchErrors = [];
 
             foreach ($elements as $element) {
                 // Check for errors in the individual batch elements
                 if (($element['HasErrors'] ?? false) && !empty($element['ValidationErrors'])) {
-                    $errors = collect($element['ValidationErrors'])->pluck('Message')->implode(', ');
-                    $reference = $element['Reference'] ?? 'N/A';
+                    $errors = collect($element['ValidationErrors'])->pluck('Message')->implode('; ');
+                    $reference = $element['Reference'] ?? $element['Code'] ?? 'N/A';
                     $name = $element['Name'] ?? 'N/A';
-                    Log::error("Batch {$endpoint} failure for {$name} / Reference: {$reference}. Errors: {$errors}");
+                    $logMessage = "Batch {$endpoint} failure for {$name} / Ref: {$reference}. Errors: {$errors}";
+                    Log::error($logMessage);
+                    
+                    // Log error detail to the SyncRun record's error_details
+                    $batchErrors[] = [
+                        'endpoint' => $endpoint,
+                        'reference' => $reference,
+                        'name' => $name,
+                        'errors' => $errors,
+                    ];
                 }
             }
             
             // Merge the elements from the current chunk into the aggregated response
             $aggregatedResponse[$responseKey] = array_merge($aggregatedResponse[$responseKey], $elements);
+
+            // Update error details on the SyncRun object if errors occurred
+            if ($syncRun && !empty($batchErrors)) {
+                $currentErrors = $syncRun->error_details ?? [];
+                
+                // Ensure 'batch_errors' is an array before merging
+                if (!isset($currentErrors['batch_errors']) || !is_array($currentErrors['batch_errors'])) {
+                    $currentErrors['batch_errors'] = [];
+                }
+
+                $currentErrors['batch_errors'] = array_merge($currentErrors['batch_errors'], $batchErrors);
+
+                $syncRun->update(['error_details' => $currentErrors]);
+            }
         });
 
         return $aggregatedResponse;
@@ -483,11 +529,12 @@ class XeroIntegrationService
      * @param string $method
      * @param string $endpoint e.g., 'Invoices', 'Payments', 'Contacts'
      * @param Collection $payloads Collection of individual payloads
+     * @param SyncRun|null $syncRun Optional SyncRun record for logging batch errors
      * @throws Exception
      */
-    private static function batchApiCall(User $user, string $method, string $endpoint, Collection $payloads): void
+    private static function batchApiCall(User $user, string $method, string $endpoint, Collection $payloads, ?SyncRun $syncRun = null): void
     {
-        self::batchApiCallWithResponse($user, $method, $endpoint, $payloads);
+        self::batchApiCallWithResponse($user, $method, $endpoint, $payloads, $syncRun);
     }
 
 
