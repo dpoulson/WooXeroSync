@@ -10,8 +10,8 @@ return new class extends Migration
     {
         Schema::table('users', function (Blueprint $table) {
             $table->string('woocommerce_url')->nullable();
-            $table->string('woocommerce_consumer_key', 100)->nullable();
-            $table->string('woocommerce_consumer_secret', 100)->nullable();
+            $table->text('woocommerce_consumer_key')->nullable();
+            $table->text('woocommerce_consumer_secret')->nullable();
         });
     }
 
