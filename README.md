@@ -12,4 +12,3 @@ Sync orders from WooCommerce to Xero.
 * Batches calls together to minimise API calls
 * Full PKCE auth
 * Maps payment gateways to bank accounts for simple reconciliation
-

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\User; // Assuming your User model is in this namespace
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Str;
 use Carbon\Carbon; 
 use Exception;
@@ -30,7 +31,7 @@ class XeroTokenService
     public static function makeApiCall(User $user, string $method, string $endpoint, ?array $data = null): array
     {
         $accessToken = self::getValidAccessToken($user);
-        $tenantId = $user->xero_tenant_id;
+        $tenantId = Crypt::decryptString($user->xero_tenant_id);
         
         if (!$tenantId) {
             throw new Exception("Xero Tenant ID is missing. Please reconnect to Xero.");
@@ -112,7 +113,7 @@ class XeroTokenService
      */
     public static function revokeConnection(User $user): void
     {
-        $refreshToken = $user->xero_refresh_token;
+        $refreshToken = Crypt::decryptString($user->xero_refresh_token);
 
         // 1. Attempt API Revocation
         if (!empty($refreshToken)) {
@@ -172,7 +173,7 @@ class XeroTokenService
 
         $status = [
             'connected' => $isConnected,
-            'tenant_id' => $user->xero_tenant_id,
+            'tenant_id' => Crypt::decryptString($user->xero_tenant_id),
             'tenant_name' => $user->xero_tenant_name,
             'expires_at' => $expiresAt ? $expiresAt->format('Y-m-d H:i:s T') : null,
             'needs_refresh' => false,
@@ -210,7 +211,7 @@ class XeroTokenService
         }
 
         // Token is still valid
-        return $user->xero_access_token;
+        return Crypt::decryptString($user->xero_access_token);
     }
 
     /**
@@ -231,7 +232,7 @@ class XeroTokenService
             $response = Http::asForm()->post(self::TOKEN_URL, [
                 'grant_type' => 'refresh_token',
                 'client_id' => config('services.xero.client_id'), // Client ID required even for PKCE refresh
-                'refresh_token' => $user->xero_refresh_token,
+                'refresh_token' => Crypt::decryptString($user->xero_refresh_token),
             ]);
 
             if ($response->failed()) {
@@ -268,12 +269,12 @@ class XeroTokenService
      */
     public static function saveConnectionData($user, array $tokenData, string $tenantId = null, string $tenantName = null): void
     {
-        $user->xero_access_token = $tokenData['access_token'];
+        $user->xero_access_token = Crypt::encryptString($tokenData['access_token']);
         // Use new refresh token if provided (it almost always is in the refresh grant response)
-        $user->xero_refresh_token = $tokenData['refresh_token'] ?? $user->xero_refresh_token; 
+        $user->xero_refresh_token = Crypt::encryptString($tokenData['refresh_token']) ?? Crypt::encryptString($user->xero_refresh_token); 
         $user->xero_token_expires_at = now()->addSeconds($tokenData['expires_in']);
         if ($tenantId) {
-            $user->xero_tenant_id = $tenantId;
+            $user->xero_tenant_id = Crypt::encryptString($tenantId);
         }
         if ($tenantName) { // NEW: Save tenant name
             $user->xero_tenant_name = $tenantName;

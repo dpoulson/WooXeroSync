@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\User;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Crypt;
 use Carbon\Carbon;
 use Exception;
 
@@ -27,6 +28,7 @@ class WoocommerceService
                    ->timeout(15)
                    ->withHeaders(['Accept' => 'application/json']);
     }
+
 
     /**
      * Tests the connection to the WooCommerce store using Basic Auth.
@@ -110,14 +112,13 @@ class WoocommerceService
         }
 
         $url = rtrim($user->woocommerce_url, '/');
-        $key = $user->woocommerce_consumer_key;
-        $secret = $user->woocommerce_consumer_secret;
+        $key = Crypt::decryptString($user->woocommerce_consumer_key);
+        $secret = Crypt::decryptString($user->woocommerce_consumer_secret);
 
         // Calculate the date range
         $afterDate = Carbon::now()->subDays($days)->toIso8601String();
         
         $endpoint = "{$url}/wp-json/wc/v3/orders";
-
         try {
             // Build the authenticated request
             $client = self::buildHttpClient($key, $secret);
@@ -144,6 +145,35 @@ class WoocommerceService
         } catch (Exception $e) {
             // Re-throw the exception to be caught in the controller
             throw $e;
+        }
+    }
+
+    /**
+     * Initiates the synchronization process by retrieving recent WooCommerce orders.
+     */
+    public static function syncOrders(User $user)
+    {
+
+        if (!$user->woocommerce_url) {
+            return redirect()->route('dashboard')->with('error', 'Please configure WooCommerce credentials first.');
+        }
+
+        if (!$user->xero_tenant_id) {
+            return redirect()->route('dashboard')->with('error', 'Please connect to Xero first.');
+        }
+        
+        $wcStatus = WoocommerceService::getConnectionStatus($user);
+        if (!$wcStatus['connected']) {
+             return redirect()->route('dashboard')->with('error', 'Sync Failed: WooCommerce is not configured. Please enter and save your WC credentials.');
+        }
+
+
+        try {
+            // The service method now handles the batching internally
+            XeroIntegrationService::syncOrdersToXero($user);
+
+        } catch (Exception $e) {
+            Log::error("Manual Sync Failed: " . $e->getMessage());
         }
     }
 }
