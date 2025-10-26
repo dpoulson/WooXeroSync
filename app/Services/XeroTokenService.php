@@ -173,7 +173,7 @@ class XeroTokenService
 
         $status = [
             'connected' => $isConnected,
-            'tenant_id' => Crypt::decryptString($user->xero_tenant_id),
+            'tenant_id' => !empty($user->xero_tenant_id) ? Crypt::decryptString($user->xero_tenant_id) : null,
             'tenant_name' => $user->xero_tenant_name,
             'expires_at' => $expiresAt ? $expiresAt->format('Y-m-d H:i:s T') : null,
             'needs_refresh' => false,
@@ -211,7 +211,7 @@ class XeroTokenService
         }
 
         // Token is still valid
-        return Crypt::decryptString($user->xero_access_token);
+        return !empty($user->xero_access_token) ? Crypt::decryptString($user->xero_access_token) : null;
     }
 
     /**
