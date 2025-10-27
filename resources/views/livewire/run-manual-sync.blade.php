@@ -145,6 +145,27 @@
             
             </div>
     
+        {{-- Days to Sync Input --}}
+        <div class="mt-6 max-w-xl mx-auto">
+            <label for="syncDays" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Number of Days to Sync (Last X Days)
+            </label>
+            <input 
+                wire:model.live="syncDays" 
+                type="number" 
+                id="syncDays" 
+                name="syncDays"
+                min="1"
+                max="365"
+                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                placeholder="2"
+            >
+            @error('syncDays') <p class="mt-2 text-sm text-red-600">{{ $message }}</p> @enderror
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Default is 2 days. The system will sync orders created in the last X days.</p>
+        </div>
+        
+        <div class="mt-6">
+
         {{-- The Sync Button --}}
         <button
             wire:click="syncOrders"
@@ -172,6 +193,7 @@
                 Syncing...
             </span>
         </button>
+    </div>
     @endif
 </div>
 

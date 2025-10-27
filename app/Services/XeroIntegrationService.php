@@ -73,7 +73,7 @@ class XeroIntegrationService
      * @param Team $team
      * @throws Exception
      */
-    public static function syncOrdersToXero(Team $team): void
+    public static function syncOrdersToXero(Team $team, int $days = 2): void
     {
         // 1. Initialize SyncRun record
         $syncRun = SyncRun::create([
@@ -91,7 +91,7 @@ class XeroIntegrationService
         try {
             Log::info("Starting TWO-PASS batched sync (rate-limit optimized) for team {$team->id}...");
             
-            $orders = WoocommerceService::getRecentOrders($team);
+            $orders = WoocommerceService::getRecentOrders($team, $days);
             if (empty($orders)) {
                 Log::info("No recent WooCommerce orders found to sync.");
                 // Update log record and exit

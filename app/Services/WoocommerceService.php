@@ -133,12 +133,12 @@ class WoocommerceService
 
             if ($response->failed()) {
                 $error = $response->json()['message'] ?? "WooCommerce API error.";
-                Log::error("WooCommerce Order Fetch Failed: " . $error, ['team_id' => $team->id, 'status' => $response->status(), 'key' => $key, 'secret' => $secret]);
+                Log::error("WooCommerce Order Fetch Failed: " . $error, ['team_id' => $team->id, 'status' => $response->status()]);
                 throw new Exception("Failed to fetch orders from WooCommerce: [HTTP {$response->status()}] {$error}");
             }
 
             $orders = $response->json();
-            Log::info("Successfully retrieved " . count($orders) . " orders from WooCommerce for team {$team->id}.");
+            Log::info("Successfully retrieved " . count($orders) . " orders from the last ". $days ." days from WooCommerce for team {$team->id}.");
 
             return $orders;
 
@@ -151,7 +151,7 @@ class WoocommerceService
     /**
      * Initiates the synchronization process by retrieving recent WooCommerce orders.
      */
-    public static function syncOrders(Team $team)
+    public static function syncOrders(Team $team, int $days = 2)
     {
 
         if (!$team->WoocommerceConnection->store_url) {
@@ -170,7 +170,7 @@ class WoocommerceService
 
         try {
             // The service method now handles the batching internally
-            XeroIntegrationService::syncOrdersToXero($team);
+            XeroIntegrationService::syncOrdersToXero($team, $days);
 
         } catch (Exception $e) {
             Log::error("Manual Sync Failed: " . $e->getMessage());

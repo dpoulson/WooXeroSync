@@ -17,6 +17,7 @@ class RunManualSync extends Component
     public $lastSync = null;
     public bool $loading = true;
     public ?string $error = null;
+    public int $syncDays = 2; // Default to 2 days
     // These public properties will hold the data displayed in the view.
     // They are automatically passed to the view.
     public array $xeroStatus = [];
@@ -138,7 +139,7 @@ class RunManualSync extends Component
 
         try {
             // Call your service method. This is the long-running operation.
-            $orderCount = WoocommerceService::SyncOrders($this->currentTeam);
+            $orderCount = WoocommerceService::SyncOrders($this->currentTeam, $this->syncDays);
 
             // Update status upon success
             $this->syncStatus = "Sync Complete! Successfully synced $orderCount orders.";
@@ -151,6 +152,7 @@ class RunManualSync extends Component
             Log::error('WooCommerce Sync Error for Team ID ' . $this->currentTeam->id . ': ' . $e->getMessage());
         }
         $this->loadLastSyncRun();
+        Log::error('WooCommerce Sync for Team ID ' . $this->currentTeam->id . ': ' . $this->syncDays);
         // The component will automatically re-render here, updating the displayed status.
     }
 
