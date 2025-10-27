@@ -256,7 +256,7 @@ class XeroTokenService
 
             Log::info("Xero token for team {$team->id} successfully refreshed.");
 
-            return $team->XeroConnection()->access_token;
+            return $team->XeroConnection->access_token;
 
         } catch (Exception $e) {
             // Re-throw the exception for the calling function to handle
