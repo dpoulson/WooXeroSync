@@ -31,7 +31,7 @@
                     </div>
                 </header>
             @endif
-
+            <x-banner />
             <!-- Page Content -->
             <main>
                 <div class="py-4 sm:px-6 lg:px-8"> 

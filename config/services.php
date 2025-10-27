@@ -41,5 +41,15 @@ return [
         'redirect' => env('XERO_REDIRECT_URI'),
     ],
 
+    'github' => [
+        'client_id' => env('GITHUB_CLIENT_ID'),
+        'client_secret' => env('GITHUB_CLIENT_SECRET'),
+        'redirect' => '/oauth/github/callback',
+    ],
 
+    'github' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => '/oauth/google/callback',
+    ],
 ];

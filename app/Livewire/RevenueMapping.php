@@ -8,20 +8,17 @@ use App\Services\XeroIntegrationService;
 use App\Models\Team;
 use Illuminate\Support\Facades\Log;
 
-class PaymentMapping extends Component
+class RevenueMapping extends Component
 {
 
         // These public properties will hold the data displayed in the view.
     // They are automatically passed to the view.
     public array $xeroStatus = [];
-    public array $xeroBankAccounts = [];
-    public array $wcPaymentMap = [];
-    public array $wcPaymentTypes = [
-        'bacs' => 'BACS (Bank Transfer)',
-        'cheque' => 'Cheque Payment',
-        'cod' => 'Cash on Delivery',
-        'ppcp-gateway' => 'PayPal Payments Pro',
-        'stripe' => 'Stripe (Credit Card)',
+    public array $xeroAccounts = [];
+    public array $wcRevenueMap = [];
+    public array $wcRevenueTypes = [
+        'default' => 'Default Sales Account',
+        'postage' => 'Default Postage Account',
     ];
     public array $mapping = [];
     public $currentTeam;
@@ -44,21 +41,21 @@ class PaymentMapping extends Component
 
         if ($this->xeroStatus['connected']) {
             try {
-                $this->xeroBankAccounts = XeroIntegrationService::getAccounts($this->currentTeam, "BANK");
+                $this->xeroAccounts = XeroIntegrationService::getAccounts($this->currentTeam, "REVENUE");
             } catch (\Exception $e) {
                 Log::error("Unable to get list of Bank Accounts".$e);
             }
         }
 
-        $this->wcPaymentMap = $this->currentTeam->woocommerceConnection->payment_account_map ? json_decode($this->currentTeam->woocommerceConnection->payment_account_map, true) : [];
-        $this->mapping = $this->wcPaymentMap;
+        $this->wcRevenueMap = $this->currentTeam->woocommerceConnection->revenue_account_map ? json_decode($this->currentTeam->woocommerceConnection->revenue_account_map, true) : [];
+        $this->mapping = $this->wcRevenueMap;
     }
 
-    public function savePaymentMapping()
+    public function saveRevenueMapping()
     {
 
         $rules = [];
-        foreach ($this->wcPaymentTypes as $gatewayId => $gatewayName) {
+        foreach ($this->wcRevenueTypes as $gatewayId => $gatewayName) {
             // Only validate if a selection has been made (adjust as needed)
             $rules["mapping.{$gatewayId}"] = 'nullable|string'; 
         }
@@ -78,22 +75,22 @@ class PaymentMapping extends Component
             }
         }
             */
-        Log::info("Payment Map: ". json_encode($finalMapping));
+        Log::info("Revenue Map: ". json_encode($finalMapping));
 
         try {
             $this->currentTeam->woocommerceConnection()->update([
-                'payment_account_map' => json_encode($finalMapping),
+                'revenue_account_map' => json_encode($finalMapping),
             ]);
-            Log::info("Saved user payment map");
-            return redirect()->route('configure')->with('flash.banner', 'Payment mapping successfully updated and saved.');
+            Log::info("Saved user revenue map");
+            return redirect()->route('configure')->with('flash.banner', 'Revenue mapping successfully updated and saved.');
         } catch (Exception $e) {
-             Log::error('Failed to save payment mapping: ' . $e->getMessage());
-            return redirect()->route('configure')->with('flash.banner', 'Failed to save payment mapping.')->with('flash.bannerStyle', 'danger');;
+             Log::error('Failed to save revenue mapping: ' . $e->getMessage());
+             return redirect()->route('configure')->with('flash.banner', 'Failed to save revenue mapping.')->with('flash.bannerStyle', 'danger');
         }
     }
 
     public function render()
     {
-        return view('livewire.payment-mapping');
+        return view('livewire.revenue-mapping');
     }
 }

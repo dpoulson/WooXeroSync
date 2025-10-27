@@ -46,12 +46,12 @@ class XeroIntegrationService
      * @return array
      * @throws Exception
      */
-    public static function getBankAccounts(Team $team): array
+    public static function getAccounts(Team $team, string $type = "BANK"): array
     {
-        Log::info("Fetching Xero Bank Accounts for team {$team->id}");
+        Log::info("Fetching Xero Bank Accounts for team {$team->id}, type {$type}");
         
         // Xero API filter to only retrieve accounts of type 'BANK'
-        $response = XeroTokenService::makeApiCall($team, 'GET', 'Accounts', ['where' => 'Type=="BANK"']);
+        $response = XeroTokenService::makeApiCall($team, 'GET', 'Accounts', ['where' => 'Type=="'.$type.'"']);
 
         // Safely map the accounts, providing fallbacks for missing keys like 'Code'
         $accounts = collect($response['Accounts'] ?? [])
