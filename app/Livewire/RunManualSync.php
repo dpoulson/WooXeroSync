@@ -28,6 +28,10 @@ class RunManualSync extends Component
     /** @var string|null The time of the last successful sync. */
     public $lastSyncTime = null;
 
+    protected array $rules = [
+        'syncDays' => 'required|integer|min:1|max:30',
+    ];
+
     // You might also use a dedicated Xero service or repository 
     // to fetch the initial data instead of relying on the parent view.
 
@@ -133,6 +137,7 @@ class RunManualSync extends Component
 
     public function syncOrders()
     {
+        $this->validate();
         // Set an initial status while the network request is happening
         // (The wire:loading indicator will also be active now).
         $this->syncStatus = 'Synchronization in progress... Please wait.';
