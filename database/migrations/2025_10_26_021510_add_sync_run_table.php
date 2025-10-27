@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('sync_runs', function (Blueprint $table) {
             $table->id();
             // Link the run to the user who initiated it
-            $table->foreignId('user_id')->constrained()->onDelete('cascade');
+            $table->foreignId('team_id')->constrained()->onDelete('cascade');
             
             $table->string('status')->index(); // 'Running', 'Success', 'Failure'
             $table->timestamp('start_time');

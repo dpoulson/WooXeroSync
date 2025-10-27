@@ -136,9 +136,9 @@ class XeroAuthController extends Controller
 
             $data = $response->json();
             $accessToken = $data['access_token'];
-            $user = Auth::user();
+            $currentTeam = auth()->user()->currentTeam;
 
-            if (!$user) {
+            if (!$currentTeam) {
                 return redirect('/login')->with('error', 'User session lost during connection.');
             }
 
@@ -157,7 +157,7 @@ class XeroAuthController extends Controller
             $tenantId = $connections[0]['tenantId'];
             $tenantName = $connections[0]['tenantName'] ?? 'Unnamed Organisation';
 
-            XeroTokenService::saveConnectionData($user, $data, $tenantId, $tenantName);
+            XeroTokenService::saveConnectionData($currentTeam, $data, $tenantId, $tenantName);
 
             return redirect('/dashboard')->with('success', "Successfully connected to Xero organization: {$tenantName}! You can now start syncing.");
 
@@ -172,13 +172,13 @@ class XeroAuthController extends Controller
      */
     public function handleDisconnect(Request $request)
     {
-        $user = Auth::user();
-        if (empty($user->xero_refresh_token)) {
+        $currentTeam = auth()->user()->currentTeam;
+        if (empty($currentTeam->XeroConnection->refresh_token)) {
             return redirect()->route('dashboard')->with('warning', 'You were already disconnected from Xero.');
         }
 
         try {
-            XeroTokenService::revokeConnection($user);
+            XeroTokenService::revokeConnection($currentTeam);
             return redirect()->route('dashboard')->with('success', 'Successfully disconnected from Xero and revoked your tokens.');
         } catch (Exception $e) {
             return redirect()->route('dashboard')->with('error', 'An error occurred during disconnection: ' . $e->getMessage());

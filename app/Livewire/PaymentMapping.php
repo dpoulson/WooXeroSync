@@ -5,6 +5,7 @@ namespace App\Livewire;
 use Livewire\Component;
 use App\Services\XeroTokenService;
 use App\Services\XeroIntegrationService;
+use App\Models\Team;
 use Illuminate\Support\Facades\Log;
 
 class PaymentMapping extends Component
@@ -23,7 +24,7 @@ class PaymentMapping extends Component
         'stripe' => 'Stripe (Credit Card)',
     ];
     public array $mapping = [];
-    public $user;
+    public $currentTeam;
 
     // You might also use a dedicated Xero service or repository 
     // to fetch the initial data instead of relying on the parent view.
@@ -32,24 +33,24 @@ class PaymentMapping extends Component
     public function mount()
     {
 
-        if (auth()->check()) {
+        if (auth()->check() && auth()->user()->currentTeam) {
             // Get the user model instance
-            $this->user = auth()->user();
+            $this->currentTeam = auth()->user()->currentTeam;
         } else {
             // Handle guest user case (e.g., redirect or set default state)
-            abort(403, 'You must be logged in.');
+            abort(403, 'You must be logged in and have an active team.');
         }
-        $this->xeroStatus = XeroTokenService::getConnectionStatus($this->user);
+        $this->xeroStatus = XeroTokenService::getConnectionStatus($this->currentTeam);
 
         if ($this->xeroStatus['connected']) {
             try {
-                $this->xeroBankAccounts = XeroIntegrationService::getBankAccounts($this->user);
+                $this->xeroBankAccounts = XeroIntegrationService::getBankAccounts($this->currentTeam);
             } catch (\Exception $e) {
                 Log::error("Unable to get list of Bank Accounts".$e);
             }
         }
 
-        $this->wcPaymentMap = $this->user->wc_payment_account_map ? json_decode($this->user->wc_payment_account_map, true) : [];
+        $this->wcPaymentMap = $this->currentTeam->woocommerceConnection->payment_account_map ? json_decode($this->currentTeam->woocommerceConnection->payment_account_map, true) : [];
         $this->mapping = $this->wcPaymentMap;
     }
 
@@ -80,8 +81,8 @@ class PaymentMapping extends Component
         Log::info("Payment Map: ". json_encode($finalMapping));
 
         try {
-            $this->user->update([
-                'wc_payment_account_map' => json_encode($finalMapping),
+            $this->currentTeam->woocommerceConnection()->update([
+                'payment_account_map' => json_encode($finalMapping),
             ]);
             Log::info("Saved user payment map");
             return redirect()->route('configure')->with('success', 'Payment mapping successfully updated and saved.');

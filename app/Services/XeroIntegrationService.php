@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Models\User;
+use App\Models\Team;
 use App\Models\SyncRun;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Collection;
@@ -22,17 +22,17 @@ class XeroIntegrationService
     /**
      * Finds the correct Xero Account Code for a payment method based on user config.
      *
-     * @param User $user
+     * @param Team $team
      * @param string $paymentMethodId The ID (slug) of the WooCommerce payment method.
      * @return string|null
      */
-    private static function getPaymentAccountCode(User $user, string $paymentMethodId): ?string
+    private static function getPaymentAccountCode(Team $team, string $paymentMethodId): ?string
     {
-        // NOTE: Assuming $user->wc_payment_account_map is stored as a JSON string in the DB.
-        $map = $user->wc_payment_account_map ? json_decode($user->wc_payment_account_map, true) : [];
+        // NOTE: Assuming $team->wc_payment_account_map is stored as a JSON string in the DB.
+        $map = $team->woocommerceConnection->payment_account_map ? json_decode($team->woocommerceConnection->payment_account_map, true) : [];
 
         if (empty($map)) {
-            Log::warning("No Xero payment map configured for user {$user->id}. Payment will fail without a default.");
+            Log::warning("No Xero payment map configured for user {$team->id}. Payment will fail without a default.");
             return null; 
         }
 
@@ -42,16 +42,16 @@ class XeroIntegrationService
     /**
      * Retrieves a list of Bank Accounts from Xero for mapping purposes.
      *
-     * @param User $user
+     * @param Team $team
      * @return array
      * @throws Exception
      */
-    public static function getBankAccounts(User $user): array
+    public static function getBankAccounts(Team $team): array
     {
-        Log::info("Fetching Xero Bank Accounts for user {$user->id}");
+        Log::info("Fetching Xero Bank Accounts for team {$team->id}");
         
         // Xero API filter to only retrieve accounts of type 'BANK'
-        $response = XeroTokenService::makeApiCall($user, 'GET', 'Accounts', ['where' => 'Type=="BANK"']);
+        $response = XeroTokenService::makeApiCall($team, 'GET', 'Accounts', ['where' => 'Type=="BANK"']);
 
         // Safely map the accounts, providing fallbacks for missing keys like 'Code'
         $accounts = collect($response['Accounts'] ?? [])
@@ -70,14 +70,14 @@ class XeroIntegrationService
     /**
      * Executes the synchronization of recent WooCommerce orders to Xero Invoices and Payments.
      *
-     * @param User $user
+     * @param Team $team
      * @throws Exception
      */
-    public static function syncOrdersToXero(User $user): void
+    public static function syncOrdersToXero(Team $team): void
     {
         // 1. Initialize SyncRun record
         $syncRun = SyncRun::create([
-            'user_id' => $user->id,
+            'team_id' => $team->id,
             'status' => 'Running',
             'start_time' => Carbon::now(),
         ]);
@@ -89,9 +89,9 @@ class XeroIntegrationService
         ];
 
         try {
-            Log::info("Starting TWO-PASS batched sync (rate-limit optimized) for user {$user->id}...");
+            Log::info("Starting TWO-PASS batched sync (rate-limit optimized) for team {$team->id}...");
             
-            $orders = WoocommerceService::getRecentOrders($user);
+            $orders = WoocommerceService::getRecentOrders($team);
             if (empty($orders)) {
                 Log::info("No recent WooCommerce orders found to sync.");
                 // Update log record and exit
@@ -107,7 +107,7 @@ class XeroIntegrationService
             $syncRun->update(['total_orders' => $allOrders->count()]); // Update total orders
             
             // --- PASS 0: Batch check for existing invoices ---
-            $initialInvoiceMap = self::batchFindExistingInvoices($user, $allOrders);
+            $initialInvoiceMap = self::batchFindExistingInvoices($team, $allOrders);
 
             // Filter orders to only those that need processing (not already synced and paid)
             $ordersToProcess = $allOrders->filter(function($order) use ($initialInvoiceMap) {
@@ -157,11 +157,11 @@ class XeroIntegrationService
             $allSkus = array_keys($skuData);
             
             // 2. Batch retrieve existing Xero Items
-            $xeroItemMap = self::batchGetXeroItemsBySku($user, $allSkus);
+            $xeroItemMap = self::batchGetXeroItemsBySku($team, $allSkus);
 
             // 3. Determine missing items and prepare creation payloads
             $missingItemPayloads = [];
-            $defaultSalesAccountCode = $user->xero_sales_account_code ?? self::DEFAULT_ACCOUNT_CODE;
+            $defaultSalesAccountCode = $team->xero_sales_account_code ?? self::DEFAULT_ACCOUNT_CODE;
 
             foreach ($skuData as $sku => $data) {
                 if (!isset($xeroItemMap[$sku])) {
@@ -173,16 +173,16 @@ class XeroIntegrationService
             if (!empty($missingItemPayloads)) {
                 Log::info("Found " . count($missingItemPayloads) . " missing Xero Items. Batch creating them now...");
                 // Pass $syncRun to log any batch creation errors
-                self::batchCreateXeroItems($user, $missingItemPayloads, $syncRun); 
+                self::batchCreateXeroItems($team, $missingItemPayloads, $syncRun); 
                 
                 // CRITICAL: Re-query all items, including the newly created ones
-                $xeroItemMap = self::batchGetXeroItemsBySku($user, $allSkus);
+                $xeroItemMap = self::batchGetXeroItemsBySku($team, $allSkus);
                 Log::info("Re-queried Xero Items. Final map contains " . count($xeroItemMap) . " items, including newly created ones.");
             }
 
 
             // --- PASS 1.1: Batch Create/Get Contacts ---
-            $contactMap = self::batchFindOrCreateContacts($user, $ordersToProcess, $syncRun); // Pass $syncRun
+            $contactMap = self::batchFindOrCreateContacts($team, $ordersToProcess, $syncRun); // Pass $syncRun
             
             // --- PASS 1.2: Batch Create Invoices ---
             Log::info("Pass 1.2: Collecting new Invoices...");
@@ -206,7 +206,7 @@ class XeroIntegrationService
                          continue;
                     }
                     
-                    $invoicesToCreate->push(self::mapOrderToInvoicePayload($user, $order, $contactId, $xeroItemMap));
+                    $invoicesToCreate->push(self::mapOrderToInvoicePayload($team, $order, $contactId, $xeroItemMap));
                     Log::debug("Prepared Invoice payload for WC Order {$wcOrderId}.");
                     
                 } catch (Exception $e) {
@@ -218,7 +218,7 @@ class XeroIntegrationService
             // Execute Batch Create Invoices
             if ($invoicesToCreate->isNotEmpty()) {
                 // Pass $syncRun to track batch errors and get the response
-                $response = self::batchApiCallWithResponse($user, 'POST', 'Invoices', $invoicesToCreate, $syncRun); 
+                $response = self::batchApiCallWithResponse($team, 'POST', 'Invoices', $invoicesToCreate, $syncRun); 
                 
                 // Update metrics based on response
                 $invoiceCreationResponse = $response['Invoices'] ?? [];
@@ -239,19 +239,54 @@ class XeroIntegrationService
             }
             
             // --- PASS 2.1: Re-query all necessary invoices ---
-            $finalInvoiceMap = self::batchFindExistingInvoices($user, $ordersToProcess);
+            $finalInvoiceMap = self::batchFindExistingInvoices($team, $ordersToProcess);
 
             // --- PASS 2.2: Collect and Batch Payments ---
             Log::info("Pass 2.2: Collecting Payments...");
             $paymentsToCreate = new Collection();
             
             foreach ($ordersToProcess as $order) {
-                // ... (Payment payload collection logic)
+                $wcOrderId = $order['id'];
+                $wcOrderRef = (string) $wcOrderId;
+    
+                try {
+                    $isOrderPaid = in_array($order['status'], ['processing', 'completed']);
+                    
+                    // Use the final map which contains IDs for both old and newly created invoices
+                    $existingInvoice = $finalInvoiceMap[$wcOrderRef] ?? null;
+                    $invoiceId = $existingInvoice['InvoiceID'] ?? null;
+                    $invoiceStatus = $existingInvoice['Status'] ?? null;
+                    $isInvoicePaid = $invoiceStatus === 'PAID';
+                    
+                    if ($isOrderPaid && $invoiceId && !$isInvoicePaid) {
+                        // We only create payment if the WC order is paid, the Xero invoice exists, and it's not already paid.
+                        
+                        $paymentMethodId = $order['payment_method'] ?? 'unknown';
+                        $accountCode = self::getPaymentAccountCode($team, $paymentMethodId);
+    
+                        if (empty($accountCode)) {
+                            Log::error("Skipping payment for {$wcOrderId}. No Xero Account Code configured for method '{$paymentMethodId}'.");
+                            continue;
+                        }
+    
+                        // Store payment payload for batch posting
+                        $paymentsToCreate->push(self::mapOrderToPaymentPayload($order, $invoiceId, $accountCode)[0]);
+                        Log::debug("Prepared Payment payload for WC Order {$wcOrderId} with InvoiceID: {$invoiceId}.");
+                    } else if (!$invoiceId) {
+                        Log::debug("WC Order {$wcOrderId} skipped payment: Invoice not found.");
+                    } else if ($isInvoicePaid) {
+                         Log::debug("WC Order {$wcOrderId} skipped payment: Invoice already paid.");
+                    }
+                    
+                } catch (Exception $e) {
+                    // Log and continue to the next order if a single order fails preparation
+                    Log::error("Failed to prepare WC Order {$wcOrderId} for Pass 2 (Payment): " . $e->getMessage());
+                }
             }
 
             // Execute Batch Create Payments
             if ($paymentsToCreate->isNotEmpty()) {
-                self::batchApiCall($user, 'POST', 'Payments', $paymentsToCreate, $syncRun); // Pass $syncRun
+                self::batchApiCall($team, 'POST', 'Payments', $paymentsToCreate, $syncRun); // Pass $syncRun
                 Log::info("Pass 2.2: Successfully batched and sent {$paymentsToCreate->count()} Payments to Xero.");
             }
 
@@ -263,7 +298,7 @@ class XeroIntegrationService
                 'failed_invoices' => $metrics['failed_invoices'],
             ]);
 
-            Log::info("TWO-PASS Batched sync finished for user {$user->id}.");
+            Log::info("TWO-PASS Batched sync finished for user {$team->id}.");
 
         } catch (Exception $e) {
             // 5. Final Failure Update
@@ -280,7 +315,7 @@ class XeroIntegrationService
                 'successful_invoices' => $metrics['successful_invoices'],
                 'failed_invoices' => $metrics['failed_invoices'],
             ]);
-            Log::error("Critical sync failure for user {$user->id}: " . $e->getMessage());
+            Log::error("Critical sync failure for team {$team->id}: " . $e->getMessage());
             // Re-throw to ensure the calling controller knows the job failed
             throw $e; 
         }
@@ -290,12 +325,12 @@ class XeroIntegrationService
      * Finds all existing Xero Invoices corresponding to a collection of WooCommerce orders using batch GET calls.
      * This avoids individual API calls that cause rate limiting.
      *
-     * @param User $user
+     * @param Team $team
      * @param Collection $orders Collection of WooCommerce Order data
      * @return array Map of WC Order ID (Reference) -> Xero Invoice data
      * @throws Exception
      */
-    private static function batchFindExistingInvoices(User $user, Collection $orders): array
+    private static function batchFindExistingInvoices(Team $team, Collection $orders): array
     {
         Log::info("Batch querying existing Invoices for " . $orders->count() . " orders...");
         $references = $orders->pluck('id')->map(fn($id) => (string) $id);
@@ -306,12 +341,12 @@ class XeroIntegrationService
 
         $invoiceMap = [];
         // Xero's GET filter length is limited, so we chunk the references into groups of 50 and execute multiple batch calls.
-        $references->chunk(50)->each(function ($chunk) use ($user, &$invoiceMap) {
+        $references->chunk(50)->each(function ($chunk) use ($team, &$invoiceMap) {
             
             // Construct the 'where' clause: Reference=="ID1" || Reference=="ID2" || ...
             $filters = $chunk->map(fn($ref) => "Reference==\"{$ref}\"")->implode(' || ');
 
-            $response = XeroTokenService::makeApiCall($user, 'GET', 'Invoices', [
+            $response = XeroTokenService::makeApiCall($team, 'GET', 'Invoices', [
                 'where' => $filters,
                 // Include all statuses to check for existence and payment status
                 'Statuses' => ['DRAFT', 'SUBMITTED', 'AUTHORISED', 'PAID'], 
@@ -333,12 +368,12 @@ class XeroIntegrationService
      * Finds all existing Xero Inventory Items corresponding to a list of SKUs.
      * The Xero 'Code' field is used to match the WooCommerce 'sku'.
      *
-     * @param User $user
+     * @param Team $team
      * @param array $skus Array of unique WooCommerce SKUs (mapped to Xero Item Code).
      * @return array Map of SKU (Item Code) -> Xero Item data
      * @throws Exception
      */
-    private static function batchGetXeroItemsBySku(User $user, array $skus): array
+    private static function batchGetXeroItemsBySku(Team $team, array $skus): array
     {
         Log::info("Batch querying Xero Items for " . count($skus) . " unique SKUs...");
 
@@ -348,13 +383,13 @@ class XeroIntegrationService
 
         $itemMap = [];
         // Chunk SKUs to respect URL length limits (25 is a safe number)
-        collect($skus)->chunk(self::SKU_BATCH_SIZE)->each(function ($chunk) use ($user, &$itemMap) {
+        collect($skus)->chunk(self::SKU_BATCH_SIZE)->each(function ($chunk) use ($team, &$itemMap) {
             
             // Construct the 'where' clause: Code=="SKU1" || Code=="SKU2" || ...
             // Xero API filter: 'Code' is the inventory item code.
             $filters = $chunk->map(fn($sku) => "Code==\"{$sku}\"")->implode(' || ');
 
-            $response = XeroTokenService::makeApiCall($user, 'GET', 'Items', [
+            $response = XeroTokenService::makeApiCall($team, 'GET', 'Items', [
                 'where' => $filters,
             ]);
 
@@ -389,12 +424,12 @@ class XeroIntegrationService
     /**
      * Collects unique contact payloads and performs a single batch POST to Xero.
      *
-     * @param User $user
+     * @param Team $team
      * @param Collection $ordersToProcess
      * @return array Map of contact keys (Name/Email) to Xero ContactID
      * @throws Exception
      */
-    private static function batchFindOrCreateContacts(User $user, Collection $ordersToProcess, ?SyncRun $syncRun = null): array
+    private static function batchFindOrCreateContacts(Team $team, Collection $ordersToProcess, ?SyncRun $syncRun = null): array
     {
         Log::info("Pass 1.1: Batch creating/updating Contacts...");
         $uniqueContacts = [];
@@ -416,7 +451,7 @@ class XeroIntegrationService
         }
 
         // 2. Execute Batch POST for Contacts (Xero handles de-duplication)
-        $response = self::batchApiCallWithResponse($user, 'POST', 'Contacts', collect($contactPayloads), $syncRun);
+        $response = self::batchApiCallWithResponse($team, 'POST', 'Contacts', collect($contactPayloads), $syncRun);
 
         // 3. Map the response ContactIDs back to the original keys
         foreach ($response['Contacts'] ?? [] as $contact) {
@@ -449,20 +484,20 @@ class XeroIntegrationService
     /**
      * Executes a batch POST to create new Xero Inventory Items.
      *
-     * @param User $user
+     * @param Team $team
      * @param array $payloads Array of Xero Item payloads
      * @throws Exception
      */
-    private static function batchCreateXeroItems(User $user, array $payloads, ?SyncRun $syncRun = null): void
+    private static function batchCreateXeroItems(Team $team, array $payloads, ?SyncRun $syncRun = null): void
     {
         // Chunk and execute the batch creation call
-        self::batchApiCall($user, 'POST', 'Items', collect($payloads), $syncRun);
+        self::batchApiCall($team, 'POST', 'Items', collect($payloads), $syncRun);
     }
 
     /**
      * Executes a batched API call, splitting the payload if necessary, and returns the full response array.
      *
-     * @param User $user
+     * @param Team $team
      * @param string $method
      * @param string $endpoint e.g., 'Invoices', 'Payments', 'Contacts'
      * @param Collection $payloads Collection of individual payloads
@@ -470,12 +505,12 @@ class XeroIntegrationService
      * @return array The aggregated response array
      * @throws Exception
      */
-    private static function batchApiCallWithResponse(User $user, string $method, string $endpoint, Collection $payloads, ?SyncRun $syncRun = null): array
+    private static function batchApiCallWithResponse(Team $team, string $method, string $endpoint, Collection $payloads, ?SyncRun $syncRun = null): array
     {
         $aggregatedResponse = [$endpoint => []]; 
 
-        $payloads->chunk(self::BATCH_SIZE)->each(function ($chunk, $index) use ($user, $method, $endpoint, &$aggregatedResponse, $syncRun) {
-            $response = XeroTokenService::makeApiCall($user, $method, $endpoint, $chunk->toArray());
+        $payloads->chunk(self::BATCH_SIZE)->each(function ($chunk, $index) use ($team, $method, $endpoint, &$aggregatedResponse, $syncRun) {
+            $response = XeroTokenService::makeApiCall($team, $method, $endpoint, $chunk->toArray());
             
             $responseKey = $endpoint;
             $elements = $response[$responseKey] ?? [];
@@ -525,16 +560,16 @@ class XeroIntegrationService
     /**
      * Executes a batched POST API call, splitting the payload if necessary (wrapper for existing calls).
      *
-     * @param User $user
+     * @param Team $team
      * @param string $method
      * @param string $endpoint e.g., 'Invoices', 'Payments', 'Contacts'
      * @param Collection $payloads Collection of individual payloads
      * @param SyncRun|null $syncRun Optional SyncRun record for logging batch errors
      * @throws Exception
      */
-    private static function batchApiCall(User $user, string $method, string $endpoint, Collection $payloads, ?SyncRun $syncRun = null): void
+    private static function batchApiCall(Team $team, string $method, string $endpoint, Collection $payloads, ?SyncRun $syncRun = null): void
     {
-        self::batchApiCallWithResponse($user, $method, $endpoint, $payloads, $syncRun);
+        self::batchApiCallWithResponse($team, $method, $endpoint, $payloads, $syncRun);
     }
 
 
@@ -542,15 +577,15 @@ class XeroIntegrationService
 
     /**
      * Attempts to find a Xero Invoice using the WooCommerce Order ID as the Reference.
-     * * @param User $user
+     * * @param Team $team
      * @param string $reference WooCommerce Order ID
      * @return array|null
      * @throws Exception
      */
-    private static function findInvoiceByReference(User $user, string $reference): ?array
+    private static function findInvoiceByReference(Team $team, string $reference): ?array
     {
         // Xero API filter: find Invoice where Reference equals WC Order ID
-        $response = XeroTokenService::makeApiCall($user, 'GET', 'Invoices', [
+        $response = XeroTokenService::makeApiCall($team, 'GET', 'Invoices', [
             'where' => "Reference==\"{$reference}\"",
             // Include all statuses to check for existence and payment status
             'Statuses' => ['DRAFT', 'SUBMITTED', 'AUTHORISED', 'PAID'], 
@@ -643,12 +678,12 @@ class XeroIntegrationService
      * @param string $contactId
      * @return array
      */
-    private static function mapOrderToInvoicePayload(User $user, array $order, string $contactId, array $xeroItemMap): array
+    private static function mapOrderToInvoicePayload(Team $team, array $order, string $contactId, array $xeroItemMap): array
     {
 
-        $defaultSalesAccountCode = $user->xero_sales_account_code ?? self::DEFAULT_ACCOUNT_CODE;
+        $defaultSalesAccountCode = $team->xero_sales_account_code ?? self::DEFAULT_ACCOUNT_CODE;
         // If shipping code isn't explicitly set, default it to the sales account code
-        $shippingAccountCode = $user->xero_shipping_account_code ?? $defaultSalesAccountCode;
+        $shippingAccountCode = $team->xero_shipping_account_code ?? $defaultSalesAccountCode;
 
         $lineItems = collect($order['line_items'] ?? [])->map(function ($item) use ($defaultSalesAccountCode, $xeroItemMap) {
             

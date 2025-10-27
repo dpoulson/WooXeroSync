@@ -2,7 +2,8 @@
 
 namespace App\Services;
 
-use App\Models\User; // Assuming your User model is in this namespace
+use App\Models\Team; // Assuming your Team model is in this namespace
+use App\Models\XeroConnection; 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Crypt;
@@ -21,17 +22,17 @@ class XeroTokenService
     /**
      * Executes an authenticated Xero API call, ensuring the token is valid first.
      *
-     * @param User $user
+     * @param Team $team
      * @param string $method HTTP method (GET, POST)
      * @param string $endpoint The API endpoint (e.g., 'Contacts' or 'Invoices')
      * @param array|null $data Payload for POST/PUT requests
      * @return array The JSON response body
      * @throws Exception
      */
-    public static function makeApiCall(User $user, string $method, string $endpoint, ?array $data = null): array
+    public static function makeApiCall(Team $team, string $method, string $endpoint, ?array $data = null): array
     {
-        $accessToken = self::getValidAccessToken($user);
-        $tenantId = Crypt::decryptString($user->xero_tenant_id);
+        $accessToken = self::getValidAccessToken($team);
+        $tenantId = $team->XeroConnection->tenant_id;
         
         if (!$tenantId) {
             throw new Exception("Xero Tenant ID is missing. Please reconnect to Xero.");
@@ -59,7 +60,7 @@ class XeroTokenService
             $errorBody = $response->json();
             $errorMessage = $errorBody['Message'] ?? 'An unknown Xero API error occurred.';
             Log::error("Xero API Call Failed ({$method} {$endpoint}): {$errorMessage}", [
-                'user_id' => $user->id,
+                'user_id' => $team->id,
                 'status' => $response->status(),
                 'response' => $errorBody,
                 'payload' => $data
@@ -108,12 +109,12 @@ class XeroTokenService
     /**
      * Attempts to revoke the refresh token with Xero and clears all stored data.
      *
-     * @param User $user
+     * @param Team $team
      * @return void
      */
-    public static function revokeConnection(User $user): void
+    public static function revokeConnection(Team $team): void
     {
-        $refreshToken = Crypt::decryptString($user->xero_refresh_token);
+        $refreshToken = $team->XeroConnection->refresh_token;
 
         // 1. Attempt API Revocation
         if (!empty($refreshToken)) {
@@ -126,55 +127,55 @@ class XeroTokenService
                 ]);
 
                 if ($response->successful()) {
-                    Log::info("Xero refresh token successfully revoked for user {$user->id}.");
+                    Log::info("Xero refresh token successfully revoked for team {$team->id}.");
                 } else {
                     // Log the failure but continue to local cleanup, as the tokens are now unusable anyway
                     Log::warning('Xero API token revocation failed, but proceeding with local cleanup.', [
-                        'user_id' => $user->id, 
+                        'team_id' => $team->id, 
                         'status' => $response->status(), 
                         'body' => $response->body()
                     ]);
                 }
             } catch (Exception $e) {
                 // Log and ignore network errors, focus on local cleanup
-                Log::error('Network error during Xero token revocation.', ['user_id' => $user->id, 'error' => $e->getMessage()]);
+                Log::error('Network error during Xero token revocation.', ['team_id' => $team->id, 'error' => $e->getMessage()]);
             }
         }
 
         // 2. Local Database Cleanup (Crucial step regardless of API success)
-        $user->xero_access_token = null;
-        $user->xero_refresh_token = null;
-        $user->xero_token_expires_at = null;
-        $user->xero_tenant_id = null;
-        $user->xero_tenant_name = null;
-        $user->save();
+        $team->XeroConnection->access_token = null;
+        $team->XeroConnection->refresh_token = null;
+        $team->XeroConnection->expires_at = null;
+        $team->XeroConnection->tenant_id = null;
+        $team->XeroConnection->tenant_name = null;
+        $team->XeroConnection->save();
     }
 
     /**
      * Determines the current connection status for the user.
      *
-     * @param User $user
+     * @param Team $team
      * @return array
      */
-    public static function getConnectionStatus(User $user): array
+    public static function getConnectionStatus(Team $team): array
     {
-        $isConnected = !empty($user->xero_access_token) && !empty($user->xero_tenant_id);
+        $isConnected = !empty($team->XeroConnection->access_token) && !empty($team->XeroConnection->tenant_id);
 
-        $expiresAt = $user->xero_token_expires_at;
+        $expiresAt = !empty($team->XeroConnection->expires_at) ? $team->XeroConnection->expires_at : null;
         if (is_string($expiresAt) && !empty($expiresAt)) {
             try {
                 $expiresAt = Carbon::parse($expiresAt);
             } catch (\Exception $e) {
                 // Should not happen if data is correctly saved, but good for robustness
-                Log::warning('Could not parse xero_token_expires_at string: ' . $user->xero_token_expires_at);
+                Log::warning('Could not parse xero_token_expires_at string: ' . $team->XeroConnection()->expires_at);
                 $expiresAt = null; 
             }
         }
 
         $status = [
             'connected' => $isConnected,
-            'tenant_id' => !empty($user->xero_tenant_id) ? Crypt::decryptString($user->xero_tenant_id) : null,
-            'tenant_name' => $user->xero_tenant_name,
+            'tenant_id' => !empty($team->XeroConnection->tenant_id) ? $team->XeroConnection->tenant_id : null,
+            'tenant_name' => !empty($team->XeroConnection->tenant_name) ? $team->XeroConnection->tenant_name : null,
             'expires_at' => $expiresAt ? $expiresAt->format('Y-m-d H:i:s T') : null,
             'needs_refresh' => false,
             'message' => 'Not connected to Xero.',
@@ -182,7 +183,7 @@ class XeroTokenService
 
         if ($isConnected) {
             // Check if token is nearing expiry (using the same 60-second buffer as the refresh logic)
-            if (now()->addSeconds(60)->greaterThan($user->xero_token_expires_at)) {
+            if (now()->addSeconds(60)->greaterThan($team->XeroConnection->expires_at)) {
                 $status['needs_refresh'] = true;
                 $status['message'] = 'Connected, but token is expired or requires immediate refresh.';
             } else {
@@ -197,34 +198,34 @@ class XeroTokenService
      * Checks if the token is expired and refreshes it if necessary.
      * This is the entry point for ensuring a token is valid before an API call.
      *
-     * @param User $user The authenticated user model instance.
+     * @param Team $team The authenticated user model instance.
      * @return string The valid (or newly refreshed) access token.
      * @throws Exception if token refreshing fails.
      */
-    public static function getValidAccessToken(User $user): string
+    public static function getValidAccessToken(Team $team): string
     {
         // 1. Check if the token needs refreshing (e.g., expires within the next 60 seconds)
         // Add a 60-second buffer to prevent token expiry during an ongoing request.
-        if (now()->addSeconds(60)->greaterThan($user->xero_token_expires_at)) {
-            Log::info("Xero token for user {$user->id} expired. Attempting refresh...");
-            return self::refreshAccessToken($user);
+        if (now()->addSeconds(60)->greaterThan($team->XeroConnection->expires_at)) {
+            Log::info("Xero token for team {$team->id} expired. Attempting refresh...");
+            return self::refreshAccessToken($team);
         }
 
         // Token is still valid
-        return !empty($user->xero_access_token) ? Crypt::decryptString($user->xero_access_token) : null;
+        return !empty($team->XeroConnection->access_token) ? $team->XeroConnection->access_token : null;
     }
 
     /**
      * Executes the OAuth 2.0 Refresh Token grant flow.
      *
-     * @param User $user
+     * @param Team $team
      * @return string The new access token.
      * @throws Exception
      */
-    public static function refreshAccessToken(User $user): string
+    public static function refreshAccessToken(Team $team): string
     {
-        if (empty($user->xero_refresh_token)) {
-            throw new Exception("Cannot refresh token: Refresh token missing for user {$user->id}.");
+        if (empty($team->XeroConnection->refresh_token)) {
+            throw new Exception("Cannot refresh token: Refresh token missing for team {$team->id}.");
         }
 
         try {
@@ -232,18 +233,18 @@ class XeroTokenService
             $response = Http::asForm()->post(self::TOKEN_URL, [
                 'grant_type' => 'refresh_token',
                 'client_id' => config('services.xero.client_id'), // Client ID required even for PKCE refresh
-                'refresh_token' => Crypt::decryptString($user->xero_refresh_token),
+                'refresh_token' => $team->XeroConnection->refresh_token,
             ]);
 
             if ($response->failed()) {
                 Log::error('Xero Token Refresh Failed.', [
-                    'user_id' => $user->id,
+                    'user_id' => $team->id,
                     'response' => $response->body()
                 ]);
 
                 // Xero often returns 400 for an expired refresh token, requiring re-authorization
                 if ($response->status() === 400) {
-                    throw new Exception("Refresh token is invalid or expired. User must re-authorize Xero.");
+                    throw new Exception("Refresh token is invalid or expired. Team must re-authorize Xero.");
                 }
 
                 throw new Exception('Failed to refresh Xero access token.');
@@ -251,11 +252,11 @@ class XeroTokenService
 
             $data = $response->json();
 
-            self::saveConnectionData($user, $data, Crypt::decryptString($user->xero_tenant_id), $user->xero_tenant_name);
+            self::saveConnectionData($team, $data, $team->XeroConnection->tenant_id, $team->XeroConnection->tenant_name);
 
-            Log::info("Xero token for user {$user->id} successfully refreshed.");
+            Log::info("Xero token for team {$team->id} successfully refreshed.");
 
-            return $user->xero_access_token;
+            return $team->XeroConnection()->access_token;
 
         } catch (Exception $e) {
             // Re-throw the exception for the calling function to handle
@@ -264,21 +265,36 @@ class XeroTokenService
     }
 
     /**
-     * Helper to save connection details to the user model.
-     * Moved from controller to service for centralization.
+     * Helper to save connection details to the XeroConnection model.
+     * * @param \App\Models\Team $team
+     * @param array $tokenData
+     * @param string|null $tenantId
+     * @param string|null $tenantName
      */
-    public static function saveConnectionData($user, array $tokenData, string $tenantId = null, string $tenantName = null): void
+    public static function saveConnectionData($team, array $tokenData, string $tenantId = null, string $tenantName = null): void
     {
-        $user->xero_access_token = Crypt::encryptString($tokenData['access_token']);
-        // Use new refresh token if provided (it almost always is in the refresh grant response)
-        $user->xero_refresh_token = Crypt::encryptString($tokenData['refresh_token']) ?? Crypt::encryptString($user->xero_refresh_token); 
-        $user->xero_token_expires_at = now()->addSeconds($tokenData['expires_in']);
-        if ($tenantId) {
-            $user->xero_tenant_id = Crypt::encryptString($tenantId);
-        }
-        if ($tenantName) { // NEW: Save tenant name
-            $user->xero_tenant_name = $tenantName;
-        }
-        $user->save();
+        // The $team->xeroConnection() call accesses the relationship *builder*
+        // We use updateOrCreate to ensure the record exists (prevents the 'on null' error).
+        $team->xeroConnection()->updateOrCreate(
+            // 1. Attributes to check for existence (The connection is unique per team)
+            ['team_id' => $team->id],
+            
+            // 2. Values to set/update
+            [
+                // DO NOT manually encrypt. Laravel's AsEncryptedString cast handles this.
+                'access_token'  => $tokenData['access_token'],
+                
+                // Only update the refresh token if it's present in the response
+                'refresh_token' => $tokenData['refresh_token'] ?? $team->xeroConnection->refresh_token,
+                
+                'expires_at'    => now()->addSeconds($tokenData['expires_in']),
+                
+                // Set tenant ID/Name if provided
+                'tenant_id'     => $tenantId, 
+                'tenant_name'   => $tenantName, // Note: You'll need to add tenant_name to $fillable/casts
+            ]
+        );
+        
+        // Note: No need for $team->save() or $connection->save() - updateOrCreate handles the persistence.
     }
 }

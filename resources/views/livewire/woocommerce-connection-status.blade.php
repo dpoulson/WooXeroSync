@@ -50,30 +50,30 @@
         <form wire:submit.prevent="saveConnection">
             
             <div class="mb-4">
-                <label for="woocommerce_url" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Store URL</label>
-                <input type="url" id="woocommerce_url" required
-                    wire:model="woocommerce_url"
+                <label for="store_url" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Store URL</label>
+                <input type="url" id="store_url" required
+                    wire:model="store_url"
                     class="mt-1 block w-full rounded-lg border-gray-300 dark:border-gray-700 dark:bg-gray-900 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-2 border text-black dark:text-white"
                     placeholder="https://yourstore.com">
-                @error('woocommerce_url') <span class="text-red-500 text-xs mt-1">{{ $message }}</span> @enderror
+                @error('store_url') <span class="text-red-500 text-xs mt-1">{{ $message }}</span> @enderror
             </div>
     
             <div class="mb-4">
-                <label for="woocommerce_consumer_key" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Consumer Key</label>
-                <input type="text" id="woocommerce_consumer_key" required
-                    wire:model="woocommerce_consumer_key"
+                <label for="consumer_key" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Consumer Key</label>
+                <input type="text" id="consumer_key" required
+                    wire:model="consumer_key"
                     class="mt-1 block w-full rounded-lg border-gray-300 dark:border-gray-700 dark:bg-gray-900 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-2 border text-black dark:text-white"
                     placeholder="ck_xxxxxxxxxxxxxxxxx">
-                @error('woocommerce_consumer_key') <span class="text-red-500 text-xs mt-1">{{ $message }}</span> @enderror
+                @error('consumer_key') <span class="text-red-500 text-xs mt-1">{{ $message }}</span> @enderror
             </div>
     
             <div class="mb-6">
-                <label for="woocommerce_consumer_secret" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Consumer Secret</label>
-                <input type="text" id="woocommerce_consumer_secret" required
-                    wire:model="woocommerce_consumer_secret"
+                <label for="consumer_secret" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Consumer Secret</label>
+                <input type="text" id="consumer_secret" required
+                    wire:model="consumer_secret"
                     class="mt-1 block w-full rounded-lg border-gray-300 dark:border-gray-700 dark:bg-gray-900 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-2 border text-black dark:text-white"
                     placeholder="cs_xxxxxxxxxxxxxxxxx">
-                @error('woocommerce_consumer_secret') <span class="text-red-500 text-xs mt-1">{{ $message }}</span> @enderror
+                @error('consumer_secret') <span class="text-red-500 text-xs mt-1">{{ $message }}</span> @enderror
             </div>
     
             <button type="submit" 

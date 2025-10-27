@@ -7,6 +7,7 @@ use Laravel\Jetstream\Events\TeamCreated;
 use Laravel\Jetstream\Events\TeamDeleted;
 use Laravel\Jetstream\Events\TeamUpdated;
 use Laravel\Jetstream\Team as JetstreamTeam;
+use Illuminate\Database\Eloquent\Casts\AsEncryptedString; 
 
 class Team extends JetstreamTeam
 {
@@ -21,6 +22,10 @@ class Team extends JetstreamTeam
     protected $fillable = [
         'name',
         'personal_team',
+        'wc_payment_account_map',
+        'woocommerce_url',
+        'woocommerce_consumer_key',
+        'woocommerce_consumer_secret'
     ];
 
     /**
@@ -43,6 +48,23 @@ class Team extends JetstreamTeam
     {
         return [
             'personal_team' => 'boolean',
+            'xero_token_expires_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Get the Xero connection details for the team.
+     */
+    public function xeroConnection()
+    {
+        return $this->hasOne(XeroConnection::class);
+    }
+
+    /**
+     * Get the WooCommerce connection details for the team.
+     */
+    public function woocommerceConnection()
+    {
+        return $this->hasOne(WoocommerceConnection::class);
     }
 }

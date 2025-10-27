@@ -19,6 +19,7 @@ class SyncRun extends Model
         'successful_invoices',
         'failed_invoices',
         'error_details',
+        'team_id',
     ];
 
     protected $casts = [

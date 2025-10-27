@@ -4,6 +4,7 @@ namespace App\Livewire;
 
 use Livewire\Component;
 use Livewire\Attributes\On;
+use App\Model\Teams;
 use App\Services\WoocommerceService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Crypt;
@@ -12,9 +13,9 @@ use Illuminate\Support\Facades\Log;
 class WoocommerceConnectionStatus extends Component
 {
     // Properties for the API connection form
-    public $woocommerce_url = '';
-    public $woocommerce_consumer_key = '';
-    public $woocommerce_consumer_secret = '';
+    public $store_url = '';
+    public $consumer_key = '';
+    public $consumer_secret = '';
 
     // Property to hold the status data from the service
     public array $wcStatus = [
@@ -22,6 +23,8 @@ class WoocommerceConnectionStatus extends Component
         'url' => null,
         'key_status' => 'N/A'
     ];
+
+    public $currentTeam;
 
     // Property to control the visibility of the configuration form
     public $showConfigForm = false;
@@ -31,16 +34,18 @@ class WoocommerceConnectionStatus extends Component
 
     public function mount()
     {
-        $user = Auth::user();
-
-        if (!$user) {
-            abort(403, 'User not authenticated.');
+        if (auth()->check() && auth()->user()->currentTeam) {
+            // Get the user model instance
+            $this->currentTeam = auth()->user()->currentTeam;
+        } else {
+            // Handle guest user case (e.g., redirect or set default state)
+            abort(403, 'You must be logged in and have an active team.');
         }
 
         $this->fetchWoocommerceStatus();
         
         // Load existing data if available for pre-filling
-        $this->woocommerce_url = $user->woocommerce_url ?? '';
+        $this->store_url = $this->currentTeam->woocommerceConnection->store_url ?? '';
         
         // Determine initial form visibility state
         $this->showConfigForm = !$this->wcStatus['connected'];
@@ -51,16 +56,14 @@ class WoocommerceConnectionStatus extends Component
      */
     protected function fetchWoocommerceStatus()
     {
-        // CRITICAL FIX: Get user instance locally
-        $user = Auth::user(); 
 
-        if (!$user) {
+        if (!$this->currentTeam) {
             // If user is somehow lost, return a default disconnected status
             return $this->wcStatus;
         }
 
-        // Use the existing service command with the local $user
-        $this->wcStatus = WoocommerceService::getConnectionStatus($user);
+        // Use the existing service command with the local $team
+        $this->wcStatus = WoocommerceService::getConnectionStatus($this->currentTeam);
     }
 
     /**
@@ -68,27 +71,30 @@ class WoocommerceConnectionStatus extends Component
      */
     public function saveConnection()
     {
-        // CRITICAL FIX: Re-authenticate and check the user object immediately
-        $user = Auth::user();
-        if (!$user) {
+
+        if (!$this->currentTeam) {
             $this->dispatch('banner-message', style: 'danger', message: 'Authentication required. Please refresh and log in again.');
             return;
         }
         
         $this->validate([
-            'woocommerce_url' => 'required|url',
-            'woocommerce_consumer_key' => 'required|string', 
-            'woocommerce_consumer_secret' => 'required|string', 
+            'store_url' => 'required|url',
+            'consumer_key' => 'required|string', 
+            'consumer_secret' => 'required|string', 
         ]);
+        
         
         // 1. Persist the credentials to the user model/database.
         // We are now calling forceFill() on the local $user variable, which is guaranteed not to be null.
         try {
-            $user->forceFill([
-                'woocommerce_url' => $this->woocommerce_url,
-                'woocommerce_consumer_key' => Crypt::encryptString($this->woocommerce_consumer_key),
-                'woocommerce_consumer_secret' => Crypt::encryptString($this->woocommerce_consumer_secret),
-            ])->save();
+            $this->currentTeam->woocommerceConnection()->updateOrCreate(
+                ['team_id' => $this->currentTeam->id], // The attributes to search for
+                [
+                    'store_url' => $this->store_url,
+                    'consumer_key' => $this->consumer_key,
+                    'consumer_secret' => $this->consumer_secret,
+                ]
+            );
         } catch (\Exception $e) {
             // Handle encryption or database save error gracefully
             $this->dispatch('banner-message', style: 'danger', message: 'Error saving credentials: ' . $e->getMessage());
@@ -98,8 +104,8 @@ class WoocommerceConnectionStatus extends Component
 
         
         // Clear sensitive inputs after save attempt
-        $this->woocommerce_consumer_key = '';
-        $this->woocommerce_consumer_secret = '';
+        $this->consumer_key = '';
+        $this->consumer_secret = '';
 
         // 3. Refresh the status
         $this->fetchWoocommerceStatus();

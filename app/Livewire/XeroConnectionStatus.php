@@ -11,7 +11,7 @@ class XeroConnectionStatus extends Component
     // These public properties will hold the data displayed in the view.
     // They are automatically passed to the view.
     public array $xeroStatus = [];
-    public $user;
+    public $currentTeam;
 
     // You might also use a dedicated Xero service or repository 
     // to fetch the initial data instead of relying on the parent view.
@@ -20,12 +20,12 @@ class XeroConnectionStatus extends Component
     public function mount()
     {
 
-        if (auth()->check()) {
+        if (auth()->check() && auth()->user()->currentTeam) {
             // Get the user model instance
-            $this->user = auth()->user();
+            $this->currentTeam = auth()->user()->currentTeam;
         } else {
             // Handle guest user case (e.g., redirect or set default state)
-            abort(403, 'You must be logged in.');
+            abort(403, 'You must be logged in and have an active team.');
         }
         $this->xeroStatus = $this->fetchXeroStatus();
 
@@ -36,7 +36,7 @@ class XeroConnectionStatus extends Component
     {
         
         // 2. Update the component state.
-        XeroTokenService::revokeConnection($this->user);
+        XeroTokenService::revokeConnection($this->currentTeam);
         $this->xeroStatus = $this->fetchXeroStatus(); 
         $this->dispatch('xeroStatusUpdated');
         $this->dispatch('banner-message', style: 'success', message: 'Successfully disconnected from Xero!');
@@ -58,7 +58,7 @@ class XeroConnectionStatus extends Component
     {
         // Implement logic to read the current Xero connection status
         // return 'Connected' or 'Disconnected'
-        return XeroTokenService::getConnectionStatus($this->user);
+        return XeroTokenService::getConnectionStatus($this->currentTeam);
     }
 
     // The render method remains the same, pointing to the view file.

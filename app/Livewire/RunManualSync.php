@@ -6,6 +6,7 @@ use Livewire\Component;
 use App\Services\XeroTokenService;
 use App\Services\WoocommerceService;
 use App\Models\SyncRun;
+use App\Models\Team;
 use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
@@ -19,7 +20,7 @@ class RunManualSync extends Component
     // These public properties will hold the data displayed in the view.
     // They are automatically passed to the view.
     public array $xeroStatus = [];
-    public $user;
+    public $currentTeam;
     /** @var string The user-facing status message. */
     public $syncStatus = 'Ready to start synchronization.';
     
@@ -33,12 +34,12 @@ class RunManualSync extends Component
     public function mount()
     {
 
-        if (auth()->check()) {
+        if (auth()->check() && auth()->user()->currentTeam) {
             // Get the user model instance
-            $this->user = auth()->user();
+            $this->currentTeam = auth()->user()->currentTeam;
         } else {
             // Handle guest user case (e.g., redirect or set default state)
-            abort(403, 'You must be logged in.');
+            abort(403, 'You must be logged in and have an active team.');
         }
         $this->xeroStatus = $this->fetchXeroStatus();
         $this->loadLastSyncRun();
@@ -49,9 +50,9 @@ class RunManualSync extends Component
     {
         $this->loading = true;
         $this->error = null;
-        $userId = Auth::id();
+        $teamId = $this->currentTeam->id;
 
-        if (!$userId) {
+        if (!$teamId) {
             $this->error = "User not authenticated. Cannot retrieve sync history.";
             $this->loading = false;
             return;
@@ -59,7 +60,7 @@ class RunManualSync extends Component
 
         try {
             // Retrieve the latest SyncRun record
-            $syncRun = SyncRun::where('user_id', $userId)
+            $syncRun = SyncRun::where('team_id', $teamId)
                                      ->orderBy('start_time', 'desc')
                                      ->first();
             
@@ -137,7 +138,7 @@ class RunManualSync extends Component
 
         try {
             // Call your service method. This is the long-running operation.
-            $orderCount = WoocommerceService::SyncOrders($this->user);
+            $orderCount = WoocommerceService::SyncOrders($this->currentTeam);
 
             // Update status upon success
             $this->syncStatus = "Sync Complete! Successfully synced $orderCount orders.";
@@ -147,7 +148,7 @@ class RunManualSync extends Component
             $this->syncStatus = 'Sync Failed: ' . $e->getMessage();
             
             // Log the error for debugging
-            \Log::error('WooCommerce Sync Error: ' . $e->getMessage());
+            Log::error('WooCommerce Sync Error for Team ID ' . $this->currentTeam->id . ': ' . $e->getMessage());
         }
         $this->loadLastSyncRun();
         // The component will automatically re-render here, updating the displayed status.
@@ -165,7 +166,7 @@ class RunManualSync extends Component
     {
         // Implement logic to read the current Xero connection status
         // return 'Connected' or 'Disconnected'
-        return XeroTokenService::getConnectionStatus($this->user);
+        return XeroTokenService::getConnectionStatus($this->currentTeam);
     }
 
     public function render()
