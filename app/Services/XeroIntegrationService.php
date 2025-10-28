@@ -40,6 +40,25 @@ class XeroIntegrationService
     }
 
     /**
+     * Finds the correct Xero Account Code for a payment method based on user config.
+     *
+     * @param Team $team
+     * @param string $paymentMethodId The ID (slug) of the WooCommerce payment method.
+     * @return string|null
+     */
+    private static function getRevenueAccountCode(Team $team, string $type): ?string
+    {
+        $map = $team->woocommerceConnection->revenue_account_map ? json_decode($team->woocommerceConnection->revenue_account_map, true) : [];
+
+        if (empty($map)) {
+            Log::warning("No Xero revenue map configured for user {$team->id}. Payment will fail without a default.");
+            return null; 
+        }
+
+        return $map[$paymentMethodId] ?? null;
+    }
+
+    /**
      * Retrieves a list of Bank Accounts from Xero for mapping purposes.
      *
      * @param Team $team

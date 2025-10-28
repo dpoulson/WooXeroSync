@@ -31,12 +31,13 @@
         <div class="p-3 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono break-all mb-4 text-black dark:text-white">
             {{ $xeroStatus['tenant_name'] ?? 'N/A' }}
         </div>
-        
+        <!--
         {{-- Tenant ID --}}
         <p class="text-gray-600 dark:text-gray-300 mb-2 font-semibold">Organization ID (Tenant ID):</p>
         <div class="p-3 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono break-all mb-4 text-black dark:text-white">
             {{ $xeroStatus['tenant_id'] ?? 'N/A' }}
         </div>
+    -->
         
         {{-- Token Expiry --}}
         <p class="text-gray-600 dark:text-gray-300 mb-2 font-semibold">Access Token Expiry:</p>

@@ -22,6 +22,10 @@ Route::middleware([
         return view('configure');
     })->name('configure');
 
+    Route::get('/logs', function () {
+        return view('logs');
+    })->name('logs');
+
     Route::get('/admin', [AdminController::class, 'index'])
     ->middleware('can:view admin panel') // <-- Spatie middleware check
     ->name('admin');
