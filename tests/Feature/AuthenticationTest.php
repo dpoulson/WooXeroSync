@@ -9,11 +9,14 @@ test('login screen can be rendered', function () {
 });
 
 test('users can authenticate using the login screen', function () {
-    $user = User::factory()->create();
+    // FIX: Explicitly set the password on creation
+    $user = User::factory()->create([
+        'password' => Hash::make('password'), // Ensure it's the correct hash
+    ]);
 
     $response = $this->post('/login', [
         'email' => $user->email,
-        'password' => 'password',
+        'password' => 'password', // Unhashed password for the login post
     ]);
 
     $this->assertAuthenticated();
@@ -21,7 +24,10 @@ test('users can authenticate using the login screen', function () {
 });
 
 test('users cannot authenticate with invalid password', function () {
-    $user = User::factory()->create();
+    // 🔑 FIX: Explicitly set the password to its hashed value
+    $user = User::factory()->create([
+        'password' => Hash::make('password'),
+    ]);
 
     $this->post('/login', [
         'email' => $user->email,

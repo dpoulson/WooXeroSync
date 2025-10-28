@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 use JoelButcher\Socialstream\Providers;
 use Laravel\Jetstream\Features as JetstreamFeatures;
+use Illuminate\Support\Facades\Hash;
 
 /**
  * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\User>
@@ -84,5 +85,13 @@ class UserFactory extends Factory
                 ->when(is_callable($callback), $callback),
             'ownedTeams'
         );
+    }
+
+    public function withFixedPassword(): Factory
+    {
+        return $this->state(fn (array $attributes) => [
+            // Ensure the password is the hashed version of 'password'
+            'password' => \Illuminate\Support\Facades\Hash::make('password'), 
+        ]);
     }
 }

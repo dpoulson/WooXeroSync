@@ -5,9 +5,10 @@ use Illuminate\Auth\Events\Verified;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\URL;
 use Laravel\Fortify\Features;
+use Illuminate\Support\Facades\Hash;
 
 test('email verification screen can be rendered', function () {
-    $user = User::factory()->withPersonalTeam()->create([
+    $user = User::factory()->withFixedPassword()->withPersonalTeam()->create([
         'email_verified_at' => null,
     ]);
 
@@ -42,7 +43,7 @@ test('email can be verified', function () {
 }, 'Email verification not enabled.');
 
 test('email can not verified with invalid hash', function () {
-    $user = User::factory()->create([
+    $user = User::factory()->withFixedPassword()->create([
         'email_verified_at' => null,
     ]);
 

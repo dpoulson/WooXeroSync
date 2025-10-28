@@ -5,10 +5,10 @@ use Laravel\Jetstream\Http\Livewire\TeamMemberManager;
 use Livewire\Livewire;
 
 test('team members can be removed from teams', function () {
-    $this->actingAs($user = User::factory()->withPersonalTeam()->create());
+    $this->actingAs($user = User::factory()->withFixedPassword()->withPersonalTeam()->create());
 
     $user->currentTeam->users()->attach(
-        $otherUser = User::factory()->create(), ['role' => 'admin']
+        $otherUser = User::factory()->withFixedPassword()->create(), ['role' => 'admin']
     );
 
     Livewire::test(TeamMemberManager::class, ['team' => $user->currentTeam])
@@ -19,10 +19,10 @@ test('team members can be removed from teams', function () {
 });
 
 test('only team owner can remove team members', function () {
-    $user = User::factory()->withPersonalTeam()->create();
+    $user = User::factory()->withFixedPassword()->withPersonalTeam()->create();
 
     $user->currentTeam->users()->attach(
-        $otherUser = User::factory()->create(), ['role' => 'admin']
+        $otherUser = User::factory()->withFixedPassword()->create(), ['role' => 'admin']
     );
 
     $this->actingAs($otherUser);

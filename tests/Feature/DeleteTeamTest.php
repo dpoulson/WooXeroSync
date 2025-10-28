@@ -4,16 +4,17 @@ use App\Models\Team;
 use App\Models\User;
 use Laravel\Jetstream\Http\Livewire\DeleteTeamForm;
 use Livewire\Livewire;
+use Illuminate\Support\Facades\Hash;
 
 test('teams can be deleted', function () {
-    $this->actingAs($user = User::factory()->withPersonalTeam()->create());
+    $this->actingAs($user = User::factory()->withFixedPassword()->withPersonalTeam()->create());
 
     $user->ownedTeams()->save($team = Team::factory()->make([
         'personal_team' => false,
     ]));
 
     $team->users()->attach(
-        $otherUser = User::factory()->create(), ['role' => 'test-role']
+        $otherUser = User::factory()->withFixedPassword()->create(), ['role' => 'test-role']
     );
 
     Livewire::test(DeleteTeamForm::class, ['team' => $team->fresh()])
@@ -24,7 +25,7 @@ test('teams can be deleted', function () {
 });
 
 test('personal teams cant be deleted', function () {
-    $this->actingAs($user = User::factory()->withPersonalTeam()->create());
+    $this->actingAs($user = User::factory()->withFixedPassword()->withPersonalTeam()->create());
 
     Livewire::test(DeleteTeamForm::class, ['team' => $user->currentTeam])
         ->call('deleteTeam')
