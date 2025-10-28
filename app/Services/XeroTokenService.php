@@ -204,9 +204,7 @@ class XeroTokenService
      */
     public static function getValidAccessToken(Team $team): string
     {
-        // 1. Check if the token needs refreshing (e.g., expires within the next 60 seconds)
-        // Add a 60-second buffer to prevent token expiry during an ongoing request.
-        if (now()->addSeconds(60)->greaterThan($team->XeroConnection->expires_at)) {
+        if (now()->addSeconds(120)->greaterThan($team->XeroConnection->expires_at)) {
             Log::info("Xero token for team {$team->id} expired. Attempting refresh...");
             return self::refreshAccessToken($team);
         }
@@ -253,6 +251,8 @@ class XeroTokenService
             $data = $response->json();
 
             self::saveConnectionData($team, $data, $team->XeroConnection->tenant_id, $team->XeroConnection->tenant_name);
+
+            $team->load('XeroConnection'); 
 
             Log::info("Xero token for team {$team->id} successfully refreshed.");
 

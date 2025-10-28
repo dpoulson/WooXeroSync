@@ -73,4 +73,10 @@ class TeamPolicy
     {
         return $user->ownsTeam($team);
     }
+
+    public function viewAdminPanel(User $user)
+    {
+        // Check if the user is authenticated and their current team ID is 1
+        return $user->currentTeam && $user->currentTeam->id === 1;
+    }    
 }

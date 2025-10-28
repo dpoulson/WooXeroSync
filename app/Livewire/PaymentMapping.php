@@ -50,7 +50,7 @@ class PaymentMapping extends Component
             }
         }
 
-        $this->wcPaymentMap = $this->currentTeam->woocommerceConnection->payment_account_map ? json_decode($this->currentTeam->woocommerceConnection->payment_account_map, true) : [];
+        $this->wcPaymentMap = !empty($this->currentTeam->woocommerceConnection->payment_account_map) ? json_decode($this->currentTeam->woocommerceConnection->payment_account_map, true) : [];
         $this->mapping = $this->wcPaymentMap;
     }
 

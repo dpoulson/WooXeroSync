@@ -7,6 +7,7 @@ Route::get('/', function () {
 });
 
 use App\Http\Controllers\XeroAuthController;
+use App\Http\Controllers\AdminController;
 
 Route::middleware([
     'auth:sanctum',
@@ -20,6 +21,10 @@ Route::middleware([
     Route::get('/configure', function () {
         return view('configure');
     })->name('configure');
+
+    Route::get('/admin', [AdminController::class, 'index'])
+    ->middleware('can:view admin panel') // <-- Spatie middleware check
+    ->name('admin');
 
     # Xero
     Route::get('/xero/authorize', [XeroAuthController::class, 'authorizeXero'])

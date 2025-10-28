@@ -47,7 +47,7 @@ class RevenueMapping extends Component
             }
         }
 
-        $this->wcRevenueMap = $this->currentTeam->woocommerceConnection->revenue_account_map ? json_decode($this->currentTeam->woocommerceConnection->revenue_account_map, true) : [];
+        $this->wcRevenueMap = !empty($this->currentTeam->woocommerceConnection->revenue_account_map) ? json_decode($this->currentTeam->woocommerceConnection->revenue_account_map, true) : [];
         $this->mapping = $this->wcRevenueMap;
     }
 
