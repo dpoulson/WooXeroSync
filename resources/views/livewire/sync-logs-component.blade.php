@@ -57,7 +57,7 @@
                                 {{ $syncRun->failed_invoices }}
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right dark:text-gray-400">
-                                {{ $syncRun->error_details }}
+                                {{ @json($syncRun->error_details) }}
                             </td>
                         </tr>
                     @endforeach
