@@ -33,9 +33,6 @@
                         <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
                             Failed
                         </th>
-                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
-                            Errors
-                        </th>
                     </tr>
                 </thead>
                 <tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
@@ -55,9 +52,6 @@
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right dark:text-gray-400">
                                 {{ $syncRun->failed_invoices }}
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right dark:text-gray-400">
-                                {{ @json($syncRun->error_details) }}
                             </td>
                         </tr>
                     @endforeach
