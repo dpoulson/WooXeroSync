@@ -3,7 +3,7 @@
 namespace App\Livewire;
 
 use Livewire\Component;
-use Livewire\Attributes\On; // Import the Livewire 3 attribute
+use Livewire\Attributes\On;
 
 class SyncDetailsComponent extends Component
 {
@@ -15,22 +15,38 @@ class SyncDetailsComponent extends Component
 
     /**
      * Listens for the 'sync-run-selected' event dispatched from the logs table.
-     * @param string $jsonErrorDetails The error_details JSON string from the selected SyncRun.
+     * @param mixed $errorDetails The error_details data, which might be a string or an array/object due to model casting.
      */
     #[On('sync-run-selected')]
-    public function showDetails($jsonErrorDetails)
+    public function showDetails($errorDetails)
     {
-        $this->errorDetailsJson = $jsonErrorDetails;
+        $this->details = null;
+        
+        // 1. Check if Laravel has already cast the data to an array/object.
+        if (is_array($errorDetails) || is_object($errorDetails)) {
+            // If it's already parsed, use it directly for display and re-encode it for the raw JSON display.
+            $this->details = (array) $errorDetails;
+            $this->errorDetailsJson = json_encode($errorDetails, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            return;
+        }
 
-        // Attempt to parse the JSON for better display
-        if ($jsonErrorDetails) {
-            try {
-                $this->details = json_decode($jsonErrorDetails, true);
-            } catch (\Exception $e) {
-                // Fallback if parsing fails (e.g., if it's not valid JSON)
-                $this->details = ['Error' => 'Failed to parse JSON details. Displaying raw data below.'];
+        // 2. If it's a string (the expected case, or the 'No details available' fallback)
+        if (is_string($errorDetails)) {
+            $this->errorDetailsJson = $errorDetails; // Set the raw string
+            
+            // Line 28 (original error location) - now only runs if it's confirmed a string
+            if ($errorDetails && $errorDetails !== 'No details available.') {
+                try {
+                    // Attempt to decode the string
+                    $this->details = json_decode($errorDetails, true);
+                } catch (\Exception $e) {
+                    // Fallback if parsing fails (e.g., if it's malformed JSON)
+                    $this->details = ['Error' => 'Failed to parse JSON string.', 'Raw Data' => $errorDetails];
+                }
             }
         } else {
+            // Handle any unexpected types
+            $this->errorDetailsJson = 'Unknown data type received.';
             $this->details = null;
         }
     }
