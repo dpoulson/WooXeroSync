@@ -6,28 +6,37 @@ use Livewire\Component;
 use App\Models\SyncRun;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
-use Livewire\WithPagination; // Import the trait
+use Livewire\WithPagination;
 
 class SyncLogsComponent extends Component
 {
-    use WithPagination; // Use the trait
+    use WithPagination;
 
-    // Public property to control pagination size
     public $perPage = 5;
-    
-    // Options for the per-page dropdown menu
     public $perPageOptions = [5, 10, 25, 50, 100];
 
-    // Method runs when the 'perPage' property is updated
+    // Property to highlight the currently selected row
+    public $selectedRunId = null;
+
     public function updatedPerPage()
     {
-        // Reset the current page to 1 whenever the limit changes
         $this->resetPage();
     }
 
-    public function mount()
+    /**
+     * Fetches the error details for a specific run and dispatches an event.
+     */
+    public function selectRun($syncRunId)
     {
-        // Data fetching is moved to render() for pagination to work dynamically
+        // Highlight the selected row
+        $this->selectedRunId = $syncRunId;
+
+        // Fetch the specific SyncRun to get the error_details
+        $syncRun = SyncRun::findOrFail($syncRunId);
+
+        // Dispatch the event to the SyncDetailsComponent, passing the error_details
+        // The second argument is the data payload for the listener.
+        $this->dispatch('sync-run-selected', $syncRun->error_details ?? 'No details available.');
     }
 
     public function render()
@@ -37,11 +46,11 @@ class SyncLogsComponent extends Component
 
         // Fetch paginated SyncRun models belonging to the current team
         $syncRuns = SyncRun::where('team_id', $team->id)
-            ->latest() // Order by latest run (highly recommended for logs)
-            ->paginate($this->perPage); // Use the perPage property for pagination
+            ->latest() 
+            ->paginate($this->perPage); 
 
         return view('livewire.sync-logs-component', [
-            'syncRuns' => $syncRuns, // Pass the paginated collection
+            'syncRuns' => $syncRuns,
         ]);
     }
 }

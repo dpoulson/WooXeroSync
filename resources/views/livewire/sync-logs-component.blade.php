@@ -31,7 +31,6 @@
     </div>
     
     {{-- The sync logs table, styled to fit the card's look --}}
-    {{-- Check if there are results (either on first page or subsequent pages) --}}
     @if ($syncRuns->isEmpty() && $syncRuns->currentPage() === 1)
         <div class="p-4 bg-yellow-100 text-yellow-700 rounded-lg text-sm dark:bg-yellow-800 dark:text-yellow-100">
             There are currently no logs for this organisation.
@@ -59,9 +58,13 @@
                     </tr>
                 </thead>
                 <tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
-                    {{-- Loop uses the paginated collection --}}
                     @foreach ($syncRuns as $syncRun)
-                        <tr class="hover:bg-gray-50 dark:hover:bg-gray-700 transition duration-100">
+                        {{-- Add wire:click to dispatch event and a dynamic class for visual feedback --}}
+                        <tr 
+                            wire:click="selectRun({{ $syncRun->id }})" 
+                            class="cursor-pointer transition duration-100 
+                                {{ $selectedRunId === $syncRun->id ? 'bg-indigo-100 dark:bg-indigo-900 ring-2 ring-indigo-500' : 'hover:bg-gray-50 dark:hover:bg-gray-700' }}">
+                            
                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-200">
                                 {{ $syncRun->start_time }}
                             </td>

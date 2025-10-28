@@ -11,5 +11,8 @@
             @livewire('sync-logs-component')
         </div>
     
+        <div class="flex-grow bg-white p-6 gap-4 mb-4 rounded-lg shadow-md overflow-y-auto">
+            @livewire('sync-details-component')
+        </div>
     </div>
 </x-app-layout>
