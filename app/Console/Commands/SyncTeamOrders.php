@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use App\Models\Team;
 use App\Services\WoocommerceService;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Config;
 
 class SyncTeamOrders extends Command
 {
@@ -20,7 +21,7 @@ class SyncTeamOrders extends Command
         $this->info('Starting WooCommerce order sync for all teams...');
 
         // Set the number of days for sync as requested
-        $syncDays = 1;
+        $syncDays = Config::get('sync.team_sync_days', 1);
 
         // Assuming you have a 'Team' model
         $teams = Team::all();
