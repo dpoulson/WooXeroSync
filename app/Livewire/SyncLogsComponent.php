@@ -24,19 +24,16 @@ class SyncLogsComponent extends Component
     }
 
     /**
-     * Fetches the error details for a specific run and dispatches an event.
+     * Dispatches the SyncRun ID to the details component to load information.
      */
     public function selectRun($syncRunId)
     {
         // Highlight the selected row
         $this->selectedRunId = $syncRunId;
 
-        // Fetch the specific SyncRun to get the error_details
-        $syncRun = SyncRun::findOrFail($syncRunId);
-
-        // Dispatch the event to the SyncDetailsComponent, passing the error_details
-        // The second argument is the data payload for the listener.
-        $this->dispatch('sync-run-selected', $syncRun->error_details ?? 'No details available.');
+        // Dispatch the event to the SyncDetailsComponent, passing only the ID.
+        // The details component will fetch the data using this ID.
+        $this->dispatch('sync-run-selected', $syncRunId);
     }
 
     public function render()

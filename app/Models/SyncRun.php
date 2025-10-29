@@ -35,4 +35,9 @@ class SyncRun extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    public function logs()
+    {
+        return $this->hasMany(SyncRunLog::class)->orderBy('created_at', 'asc');
+    }
 }

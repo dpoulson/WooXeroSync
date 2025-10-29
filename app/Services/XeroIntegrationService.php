@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Team;
 use App\Models\SyncRun;
 use Illuminate\Support\Facades\Log;
+use App\Logging\SyncRunDatabaseHandler;
 use Illuminate\Support\Collection;
 use Exception;
 use Carbon\Carbon;
@@ -100,6 +101,11 @@ class XeroIntegrationService
             'status' => 'Running',
             'start_time' => Carbon::now(),
         ]);
+
+        SyncRunDatabaseHandler::setCurrentSyncRunId($syncRun->id);
+    
+        // Define the specific logger instance
+        $syncLogger = Log::channel('syncrun_db');
         
         // Initialize metrics to track during the run
         $metrics = [
@@ -108,11 +114,11 @@ class XeroIntegrationService
         ];
 
         try {
-            Log::info("Starting TWO-PASS batched sync (rate-limit optimized) for team {$team->id}...");
+            $syncLogger->info("Starting TWO-PASS batched sync (rate-limit optimized) for {$team->name}...");
             
             $orders = WoocommerceService::getRecentOrders($team, $days);
             if (empty($orders)) {
-                Log::info("No recent WooCommerce orders found to sync.");
+                $syncLogger->info("No recent WooCommerce orders found to sync.");
                 // Update log record and exit
                 $syncRun->update([
                     'status' => 'Success',
@@ -129,14 +135,14 @@ class XeroIntegrationService
             $initialInvoiceMap = self::batchFindExistingInvoices($team, $allOrders);
 
             // Filter orders to only those that need processing (not already synced and paid)
-            $ordersToProcess = $allOrders->filter(function($order) use ($initialInvoiceMap) {
+            $ordersToProcess = $allOrders->filter(function($order) use ($initialInvoiceMap, $syncLogger) {
                 $wcOrderRef = (string) $order['id'];
                 $existingInvoice = $initialInvoiceMap[$wcOrderRef] ?? null;
                 
                 $isInvoicePaid = ($existingInvoice['Status'] ?? null) === 'PAID';
                 
                 if ($isInvoicePaid) {
-                    Log::info("WC Order {$order['id']} already synced and PAID in Xero. Skipping all processing.");
+                    $syncLogger->info("WC Order {$order['id']} already synced and PAID in Xero. Skipping all processing.");
                     return false;
                 }
                 // Order needs processing if invoice doesn't exist or is not paid
@@ -144,7 +150,7 @@ class XeroIntegrationService
             });
 
             if ($ordersToProcess->isEmpty()) {
-                Log::info("All recent orders are already synced and paid in Xero. No further processing needed.");
+                $syncLogger->info("All recent orders are already synced and paid in Xero. No further processing needed.");
                  $syncRun->update([
                     'status' => 'Success',
                     'end_time' => Carbon::now(),
@@ -190,13 +196,13 @@ class XeroIntegrationService
 
             // 4. Batch Create Missing Items
             if (!empty($missingItemPayloads)) {
-                Log::info("Found " . count($missingItemPayloads) . " missing Xero Items. Batch creating them now...");
+                $syncLogger->info("Found " . count($missingItemPayloads) . " missing Xero Items. Batch creating them now...");
                 // Pass $syncRun to log any batch creation errors
                 self::batchCreateXeroItems($team, $missingItemPayloads, $syncRun); 
                 
                 // CRITICAL: Re-query all items, including the newly created ones
                 $xeroItemMap = self::batchGetXeroItemsBySku($team, $allSkus);
-                Log::info("Re-queried Xero Items. Final map contains " . count($xeroItemMap) . " items, including newly created ones.");
+                $syncLogger->info("Re-queried Xero Items. Final map contains " . count($xeroItemMap) . " items, including newly created ones.");
             }
 
 
@@ -204,7 +210,7 @@ class XeroIntegrationService
             $contactMap = self::batchFindOrCreateContacts($team, $ordersToProcess, $syncRun); // Pass $syncRun
             
             // --- PASS 1.2: Batch Create Invoices ---
-            Log::info("Pass 1.2: Collecting new Invoices...");
+            $syncLogger->info("Pass 1.2: Collecting new Invoices...");
             $invoicesToCreate = new Collection();
             
             foreach ($ordersToProcess as $order) {
@@ -220,16 +226,16 @@ class XeroIntegrationService
                     $contactId = $contactMap[$contactNameKey] ?? null;
 
                     if (!$contactId) {
-                         Log::error("Failed to find Xero Contact ID for key '{$contactNameKey}' for WC Order {$wcOrderId}. Skipping Invoice creation.");
+                        $syncLogger->error("Failed to find Xero Contact ID for key '{$contactNameKey}' for WC Order {$wcOrderId}. Skipping Invoice creation.");
                          // NOTE: We don't increment failed_invoices here, only after API response
                          continue;
                     }
                     
                     $invoicesToCreate->push(self::mapOrderToInvoicePayload($team, $order, $contactId, $xeroItemMap));
-                    Log::debug("Prepared Invoice payload for WC Order {$wcOrderId}.");
+                    $syncLogger->debug("Prepared Invoice payload for WC Order {$wcOrderId}.");
                     
                 } catch (Exception $e) {
-                    Log::error("Failed to prepare WC Order {$wcOrderId} for Pass 1.2 (Invoice): " . $e->getMessage());
+                    $syncLogger->error("Failed to prepare WC Order {$wcOrderId} for Pass 1.2 (Invoice): " . $e->getMessage());
                     // NOTE: This is a preparation failure, not a batch API failure.
                 }
             }
@@ -254,14 +260,14 @@ class XeroIntegrationService
                 $metrics['successful_invoices'] += $successfulInvoices;
                 $metrics['failed_invoices'] += $failedInvoices;
                 
-                Log::info("Pass 1.2: Batched and sent {$invoicesToCreate->count()} Invoices. Successful: {$successfulInvoices}, Failed: {$failedInvoices}");
+                $syncLogger->info("Pass 1.2: Batched and sent {$invoicesToCreate->count()} Invoices. Successful: {$successfulInvoices}, Failed: {$failedInvoices}");
             }
             
             // --- PASS 2.1: Re-query all necessary invoices ---
             $finalInvoiceMap = self::batchFindExistingInvoices($team, $ordersToProcess);
 
             // --- PASS 2.2: Collect and Batch Payments ---
-            Log::info("Pass 2.2: Collecting Payments...");
+            $syncLogger->info("Pass 2.2: Collecting Payments...");
             $paymentsToCreate = new Collection();
             
             foreach ($ordersToProcess as $order) {
@@ -284,29 +290,29 @@ class XeroIntegrationService
                         $accountCode = self::getPaymentAccountCode($team, $paymentMethodId);
     
                         if (empty($accountCode)) {
-                            Log::error("Skipping payment for {$wcOrderId}. No Xero Account Code configured for method '{$paymentMethodId}'.");
+                            $syncLogger->error("Skipping payment for {$wcOrderId}. No Xero Account Code configured for method '{$paymentMethodId}'.");
                             continue;
                         }
     
                         // Store payment payload for batch posting
                         $paymentsToCreate->push(self::mapOrderToPaymentPayload($order, $invoiceId, $accountCode)[0]);
-                        Log::debug("Prepared Payment payload for WC Order {$wcOrderId} with InvoiceID: {$invoiceId}.");
+                        $syncLogger->debug("Prepared Payment payload for WC Order {$wcOrderId} with InvoiceID: {$invoiceId}.");
                     } else if (!$invoiceId) {
-                        Log::debug("WC Order {$wcOrderId} skipped payment: Invoice not found.");
+                        $syncLogger->debug("WC Order {$wcOrderId} skipped payment: Invoice not found.");
                     } else if ($isInvoicePaid) {
-                         Log::debug("WC Order {$wcOrderId} skipped payment: Invoice already paid.");
+                        $syncLogger->debug("WC Order {$wcOrderId} skipped payment: Invoice already paid.");
                     }
                     
                 } catch (Exception $e) {
                     // Log and continue to the next order if a single order fails preparation
-                    Log::error("Failed to prepare WC Order {$wcOrderId} for Pass 2 (Payment): " . $e->getMessage());
+                    $syncLogger->error("Failed to prepare WC Order {$wcOrderId} for Pass 2 (Payment): " . $e->getMessage());
                 }
             }
 
             // Execute Batch Create Payments
             if ($paymentsToCreate->isNotEmpty()) {
                 self::batchApiCall($team, 'POST', 'Payments', $paymentsToCreate, $syncRun); // Pass $syncRun
-                Log::info("Pass 2.2: Successfully batched and sent {$paymentsToCreate->count()} Payments to Xero.");
+                $syncLogger->info("Pass 2.2: Successfully batched and sent {$paymentsToCreate->count()} Payments to Xero.");
             }
 
             // 4. Final Success Update
@@ -317,7 +323,7 @@ class XeroIntegrationService
                 'failed_invoices' => $metrics['failed_invoices'],
             ]);
 
-            Log::info("TWO-PASS Batched sync finished for user {$team->id}.");
+            $syncLogger->info("TWO-PASS Batched sync finished for {$team->name}.");
 
         } catch (Exception $e) {
             // 5. Final Failure Update
@@ -334,9 +340,11 @@ class XeroIntegrationService
                 'successful_invoices' => $metrics['successful_invoices'],
                 'failed_invoices' => $metrics['failed_invoices'],
             ]);
-            Log::error("Critical sync failure for team {$team->id}: " . $e->getMessage());
+            $syncLogger->error("Critical sync failure for {$team->name}: " . $e->getMessage());
             // Re-throw to ensure the calling controller knows the job failed
             throw $e; 
+        } finally {
+            SyncRunDatabaseHandler::setCurrentSyncRunId(null);
         }
     }
 

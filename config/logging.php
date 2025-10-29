@@ -127,6 +127,11 @@ return [
             'path' => storage_path('logs/laravel.log'),
         ],
 
+        'syncrun_db' => [
+            'driver' => 'syncrun_db', // The name we registered in Log::extend
+            'level' => env('LOG_LEVEL', 'info'),
+        ],
+
     ],
 
 ];

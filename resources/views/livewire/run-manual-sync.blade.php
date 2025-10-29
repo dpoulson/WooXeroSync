@@ -195,9 +195,7 @@
                 >
 
                 {{-- ADD THIS Livewire Error Display --}}
-                @error('syncDays') 
-                    <p class="mt-1 text-sm text-red-600">{{ $message }}</p> 
-                @enderror
+
                 <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Default is 2 days. The system will sync orders created in the last X days.</p>
             </div>
         </div>

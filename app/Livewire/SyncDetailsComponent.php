@@ -3,51 +3,46 @@
 namespace App\Livewire;
 
 use Livewire\Component;
-use Livewire\Attributes\On;
+use App\Models\SyncRun;
+use Illuminate\Database\Eloquent\Collection;
 
 class SyncDetailsComponent extends Component
 {
-    // Holds the raw JSON string or null if nothing is selected
-    public $errorDetailsJson = null;
+    // The ID of the currently selected SyncRun
+    public $syncRunId = null;
 
-    // Holds the parsed details (for display)
-    public $details = null;
+    // The SyncRun model instance
+    public ?SyncRun $syncRun = null;
+
+    // The log entries for the selected run
+    public Collection $logs;
+
+    // Listener for the event dispatched by SyncLogsComponent
+    protected $listeners = ['sync-run-selected' => 'loadRunDetails'];
+    
+    // Initialize the collection property
+    public function mount()
+    {
+        // Use an empty collection to prevent errors if rendered before selection
+        $this->logs = new Collection();
+    }
 
     /**
-     * Listens for the 'sync-run-selected' event dispatched from the logs table.
-     * @param mixed $errorDetails The error_details data, which might be a string or an array/object due to model casting.
+     * Loads the full details and logs for a selected SyncRun ID.
      */
-    #[On('sync-run-selected')]
-    public function showDetails($errorDetails)
+    public function loadRunDetails(int $id)
     {
-        $this->details = null;
-        
-        // 1. Check if Laravel has already cast the data to an array/object.
-        if (is_array($errorDetails) || is_object($errorDetails)) {
-            // If it's already parsed, use it directly for display and re-encode it for the raw JSON display.
-            $this->details = (array) $errorDetails;
-            $this->errorDetailsJson = json_encode($errorDetails, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-            return;
-        }
+        $this->syncRunId = $id;
 
-        // 2. If it's a string (the expected case, or the 'No details available' fallback)
-        if (is_string($errorDetails)) {
-            $this->errorDetailsJson = $errorDetails; // Set the raw string
-            
-            // Line 28 (original error location) - now only runs if it's confirmed a string
-            if ($errorDetails && $errorDetails !== 'No details available.') {
-                try {
-                    // Attempt to decode the string
-                    $this->details = json_decode($errorDetails, true);
-                } catch (\Exception $e) {
-                    // Fallback if parsing fails (e.g., if it's malformed JSON)
-                    $this->details = ['Error' => 'Failed to parse JSON string.', 'Raw Data' => $errorDetails];
-                }
-            }
+        // Eager load the logs relationship for efficiency
+        $this->syncRun = SyncRun::with('logs')->find($this->syncRunId);
+
+        if ($this->syncRun) {
+            // Assign logs, which are already sorted ASC by the relationship definition
+            $this->logs = $this->syncRun->logs;
         } else {
-            // Handle any unexpected types
-            $this->errorDetailsJson = 'Unknown data type received.';
-            $this->details = null;
+            // Clear state if run is not found
+            $this->logs = new Collection();
         }
     }
 
