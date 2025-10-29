@@ -27,6 +27,7 @@ class Team extends JetstreamTeam
         'pm_type',
         'pm_last_four',
         'trial_ends_at',
+        'is_permanent_free',
     ];
 
     /**
@@ -50,6 +51,7 @@ class Team extends JetstreamTeam
         return [
             'personal_team' => 'boolean',
             'trial_ends_at' => 'datetime',
+            'is_permanent_free' => 'boolean',
         ];
     }
 

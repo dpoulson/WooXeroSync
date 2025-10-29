@@ -22,6 +22,14 @@
                     Manage Billing
                 </a>
             </div>
+        @elseif ($team->is_permanent_free)
+        <div class="p-4 bg-green-100 text-green-700 rounded-lg text-sm border border-green-300 text-center">
+            <h3 class="text-xl font-semibold flex items-center justify-center">
+                <svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>
+                Subscription Active!
+            </h3>
+            <p class="mt-2">The organisation {{ $team->name }} is currently permanently subscribed.</p>
+        </div>            
         @else
             {{-- Status: Not Subscribed --}}
             <div class="flex items-center justify-between mb-4">
@@ -39,7 +47,7 @@
                 **Plan:** Standard (Unlimited users, advanced features)
             </p>
             <p class="text-gray-700 dark:text-gray-300">
-                **Price:** £5/month with **14-day Free Trial**.
+                **Price:** £5/month.
             </p>
 
             {{-- The key change: Use a standard anchor tag linked to the controller route --}}
