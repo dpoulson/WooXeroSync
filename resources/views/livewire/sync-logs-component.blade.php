@@ -1,4 +1,4 @@
-<div class="bg-gray-50 p-6 rounded-xl border border-gray-200 shadow-inner dark:bg-gray-700 dark:border-gray-600">
+<div class="bg-gray-50 p-4 rounded-xl border border-gray-200 shadow-inner dark:bg-gray-700 dark:border-gray-600">
 
     <div class="flex items-center justify-between mb-6">
         <h2 class="text-2xl font-semibold text-gray-700 dark:text-gray-200">Sync Logs</h2>

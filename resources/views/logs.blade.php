@@ -7,11 +7,11 @@
 
     <div class="flex flex-col">
     
-        <div class="flex-grow bg-white p-6 gap-4 mb-4 rounded-lg shadow-md overflow-y-auto">
+        <div class="flex-grow bg-white p-4 gap-2 mb-2 rounded-lg shadow-md overflow-y-auto">
             @livewire('sync-logs-component')
         </div>
     
-        <div class="flex-grow bg-white p-6 gap-4 mb-4 rounded-lg shadow-md overflow-y-auto">
+        <div class="flex-grow bg-white p-4 gap-2 mb-2 rounded-lg shadow-md overflow-y-auto">
             @livewire('sync-details-component')
         </div>
     </div>

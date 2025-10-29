@@ -7,16 +7,16 @@
 
     <div class="flex flex-col">
     
-        <div class="flex-grow bg-white p-6 gap-4 mb-4 rounded-lg shadow-md overflow-y-auto">
+        <div class="flex-grow bg-white p-4 gap-2 mb-2 rounded-lg shadow-md overflow-y-auto">
             <livewire:team-list />
         </div>
 
-        <div class="h-1/3 grid grid-cols-2 gap-4 mb-4"> 
-            <div class="bg-white p-6 rounded-lg shadow-md">
+        <div class="h-1/3 grid grid-cols-2 gap-2 mb-2"> 
+            <div class="bg-white p-4 rounded-lg shadow-md">
                 <livewire:team-members-component />
             </div>
     
-            <div class="bg-white p-6 rounded-lg shadow-md">
+            <div class="bg-white p-4 rounded-lg shadow-md">
                 <livewire:user-detail-component />
             </div>
         </div>

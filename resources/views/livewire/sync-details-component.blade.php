@@ -1,4 +1,4 @@
-<div class="bg-white p-6 rounded-xl border border-gray-200 shadow-md dark:bg-gray-800 dark:border-gray-700 h-full">
+<div class="bg-white p-4 rounded-xl border border-gray-200 shadow-md dark:bg-gray-800 dark:border-gray-700 h-full">
 
     <h2 class="text-xl font-semibold text-gray-700 mb-4 dark:text-gray-200">Error Details</h2>
     

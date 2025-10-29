@@ -4,6 +4,10 @@ namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Routing\Middleware\SubstituteBindings;
+use App\Http\Middleware\EnsureUserHasTeam;
+use Laravel\Cashier\Cashier;
+use App\Models\Team;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -20,6 +24,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        Cashier::useCustomerModel(Team::class);
+        $this->app['router']->aliasMiddleware('hasTeam', EnsureUserHasTeam::class);
     }
 }

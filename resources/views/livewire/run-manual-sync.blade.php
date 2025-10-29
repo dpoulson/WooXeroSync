@@ -1,4 +1,4 @@
-<div class="bg-gray-50 p-6 rounded-xl border border-gray-200 shadow-inner dark:bg-gray-700 dark:border-gray-600">
+<div class="bg-gray-50 p-4 rounded-xl border border-gray-200 shadow-inner dark:bg-gray-700 dark:border-gray-600">
     <div class="flex items-center justify-between mb-4">
         <h2 class="text-2xl font-semibold text-gray-700 dark:text-gray-200">Run Manual Sync</h2>
         <svg class="h-8 w-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -45,7 +45,7 @@
                 <div class="flex justify-between items-start border-b pb-3 mb-4">
                     <h3 class="text-2xl font-bold text-gray-800">Last Synchronization Status</h3>
                     <button wire:click="loadLastSyncRun" class="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition duration-150" title="Refresh Status">
-                        <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6"/><path d="M2.5 22v-6h6"/><path d="M21.5 8a10 10 0 0 0-17.923-5.5"/><path d="M2.5 16a10 10 0 0 0 17.923 5.5"/></svg>
+                        <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6"/><path d="M2.5 22v-6h6"/><path d="M21.5 8a10 10 0 0 0-17.923-5.5"/><path d="M2.5 16a10 10 0 0 0 17.923 5.5"/></svg>
                     </button>
                 </div>
             
@@ -146,52 +146,56 @@
             </div>
     
         {{-- Days to Sync Input --}}
-        <div class="mt-6 max-w-xl mx-auto">
-            <label for="syncDays" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Number of Days to Sync (Last X Days)
-            </label>
-            <input 
-                wire:model.live="syncDays" 
-                type="number" 
-                id="syncDays" 
-                name="syncDays"
-                min="1"
-                max="365"
-                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-white"
-                placeholder="2"
-            >
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Default is 2 days. The system will sync orders created in the last X days.</p>
-        </div>
-        
-        <div class="mt-6">
+        <div class="max-w-xl mx-auto">
+        <div class="flex items-end space-x-6">
 
-        {{-- The Sync Button --}}
-        <button
-            wire:click="syncOrders"
+            <div class="mb-1">
+                {{-- The Sync Button --}}
+                <button
+                    wire:click="syncOrders"
+                    
+                    {{-- DISABLE BUTTON while the syncOrders method is running --}}
+                    wire:loading.attr="disabled"
+                    wire:target="syncOrders"
             
-            {{-- DISABLE BUTTON while the syncOrders method is running --}}
-            wire:loading.attr="disabled"
-            wire:target="syncOrders"
-    
-            class="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition ease-in-out duration-150 disabled:opacity-75"
-        >
+                    class="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition ease-in-out duration-150 disabled:opacity-75"
+                >
+                    
+                    {{-- Button text when NOT loading --}}
+                    <span wire:loading.remove wire:target="syncOrders">
+                        <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2H15"></path></svg>
+                        Run Sync Now
+                    </span>
             
-            {{-- Button text when NOT loading --}}
-            <span wire:loading.remove wire:target="syncOrders">
-                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2H15"></path></svg>
-                Run Sync Now
-            </span>
-    
-            {{-- Spinner and text when LOADING --}}
-            <span wire:loading wire:target="syncOrders">
-                {{-- Simple SVG Spinner --}}
-                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Syncing...
-            </span>
-        </button>
+                    {{-- Spinner and text when LOADING --}}
+                    <span wire:loading wire:target="syncOrders">
+                        {{-- Simple SVG Spinner --}}
+                        <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Syncing...
+                    </span>
+                </button>
+            </div>
+        
+            <div class="mt-6 max-w-xl">
+                <label for="syncDays" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Number of Days to Sync (Last X Days)
+                </label>
+                <input 
+                    wire:model.live="syncDays" 
+                    type="number" 
+                    id="syncDays" 
+                    name="syncDays"
+                    min="1"
+                    max="365"
+                    class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                    placeholder="2"
+                >
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Default is 2 days. The system will sync orders created in the last X days.</p>
+            </div>
+        </div>
     </div>
     @endif
 </div>

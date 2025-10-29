@@ -30,6 +30,7 @@ class CreateTeam implements CreatesTeams
         $user->switchTeam($team = $user->ownedTeams()->create([
             'name' => $input['name'],
             'personal_team' => false,
+            'trial_ends_at' => now()->addDays(7),
         ]));
 
         return $team;
