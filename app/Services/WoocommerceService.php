@@ -153,6 +153,9 @@ class WoocommerceService
      */
     public static function syncOrders(Team $team, int $days = 2)
     {
+        if (!$team->subscribed('standard') && !$team->onTrial() && !$team->is_permanent_free) {
+            return redirect()->route('dashboard')->with('error', 'No valid subscription or trial.');
+        }
 
         if (!$team->WoocommerceConnection->store_url) {
             return redirect()->route('dashboard')->with('error', 'Please configure WooCommerce credentials first.');
