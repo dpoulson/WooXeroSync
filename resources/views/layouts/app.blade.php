@@ -16,6 +16,12 @@
 
         <!-- Styles -->
         @livewireStyles
+
+        <style>
+            /* This is where the Xero App Launcher button usually injects itself. */
+            /* It often appears in the bottom right corner. */
+            .app-content { min-height: 80vh; padding: 20px; }
+        </style>  
     </head>
     <body class="font-sans antialiased">
 
@@ -39,9 +45,46 @@
                 </div>
             </main>
         </div>
-
+        <div id="xero-app-launcher-placeholder">
+            <!-- The launcher might use this placeholder, but often injects itself into the body -->
+        </div>
         @stack('modals')
 
         @livewireScripts
+
+        <script src="https://app-cdn.xero.com/assets/xero-app-launcher.js"></script>
+        <script>
+            // The script checks for the window.XeroAppLauncher object.
+            if (window.XeroAppLauncher) {
+                
+                // --- CRITICAL CONFIGURATION ---
+                const appId = {{ config('services.xero.client_id') }};
+                const serviceUrl = "{{ url('/') }}"; // The base URL of your application
+                
+                window.XeroAppLauncher.init({
+                    appId: appId,
+                    serviceUrl: serviceUrl
+                });
+                
+                const tenantId = '{{ Auth::user()->currentTeam->xeroConnection?->tenant_id }}';
+                const tenantName = '{{ Auth::user()->currentTeam->xeroConnection?->tenant_name }}';
+
+                if (tenantId && tenantName) {
+                    
+                    // Call the SDK method to publish the tenant details
+                    window.XeroAppLauncher.setTenantInfo({
+                        tenantId: tenantData.tenantId,
+                        tenantName: tenantData.tenantName
+                    });
+
+                    console.log("Xero Tenant Info set for:", tenantName);
+                } else {
+                    console.log("Xero App Launcher initialized, but no tenant information available (user likely disconnected).");
+                }
+    
+            } else {
+                console.error("Xero App Launcher script failed to load.");
+            }
+        </script>
     </body>
 </html>
